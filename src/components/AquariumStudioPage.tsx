@@ -8,6 +8,7 @@ interface CustomItem {
   type: 'fish' | 'decor';
   price: number;
   color?: string;
+  secondaryColor?: string;
   canvasType: string;
 }
 
@@ -18,8 +19,10 @@ interface SandboxFish {
   vy: number;
   size: number;
   color: string;
+  secondaryColor?: string;
   canvasType: string;
   wiggle: number;
+  wiggleSpeed: number;
 }
 
 interface SandboxFood {
@@ -44,14 +47,14 @@ const standsVietnamese = { wood: 'Kệ Gỗ Sồi Cổ Điển', metal: 'Kệ Kh
 const backgroundsVietnamese = { 'deep-blue': 'Thủy Cung Huyền Bí', 'amazon-forest': 'Rừng Amazon', 'ancient-ruins': 'Cổ Trấn Đổ Nát' };
 
 const availableItems: CustomItem[] = [
-  { id: 'f1', name: 'Cá Đĩa Discus', type: 'fish', price: 250000, color: '#ec4899', canvasType: 'discus' },
-  { id: 'f2', name: 'Cá Rồng Kim Long', type: 'fish', price: 850000, color: '#d97706', canvasType: 'arowana' },
-  { id: 'f3', name: 'Cá Thần Tiên', type: 'fish', price: 90000, color: '#94a3b8', canvasType: 'angelfish' },
-  { id: 'f4', name: 'Cá Neon Tetra', type: 'fish', price: 15000, color: '#ef4444', canvasType: 'tetra' },
-  { id: 'f5', name: 'Cá Hề Nemo', type: 'fish', price: 80000, color: '#ff6b00', canvasType: 'clown' },
-  { id: 'd1', name: 'Lũa Cổ Thụ', type: 'decor', price: 180000, canvasType: 'driftwood' },
-  { id: 'd2', name: 'Đá Rêu Phong', type: 'decor', price: 120000, canvasType: 'stone' },
-  { id: 'd3', name: 'Cây Dương Xỉ', type: 'decor', price: 45000, canvasType: 'plant' },
+  { id: 'f1', name: 'Cá Đĩa Discus Hoàng Gia', type: 'fish', price: 250000, color: '#ec4899', secondaryColor: '#0284c7', canvasType: 'discus' },
+  { id: 'f2', name: 'Cá Rồng Kim Long 24K', type: 'fish', price: 850000, color: '#d97706', secondaryColor: '#fbbf24', canvasType: 'arowana' },
+  { id: 'f3', name: 'Cá Thần Tiên Bạch Kim', type: 'fish', price: 90000, color: '#f8fafc', secondaryColor: '#94a3b8', canvasType: 'angelfish' },
+  { id: 'f4', name: 'Cá Neon Tetra Dạ Quang', type: 'fish', price: 15000, color: '#ef4444', secondaryColor: '#00f2fe', canvasType: 'tetra' },
+  { id: 'f5', name: 'Cá Hề Nemo Cam', type: 'fish', price: 80000, color: '#ff6b00', secondaryColor: '#ffffff', canvasType: 'clown' },
+  { id: 'd1', name: 'Lũa Thủy Sinh Cổ Thụ', type: 'decor', price: 180000, canvasType: 'driftwood' },
+  { id: 'd2', name: 'Đá Rêu Phong Tự Nhiên', type: 'decor', price: 120000, canvasType: 'stone' },
+  { id: 'd3', name: 'Cây Dương Xỉ Ráy', type: 'decor', price: 45000, canvasType: 'plant' },
 ];
 
 export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToCart, onBackToStore }) => {
@@ -80,14 +83,16 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
       for (let i = currFish.length; i < fishItems.length; i++) {
         const item = fishItems[i];
         currFish.push({
-          x: 100 + Math.random() * 300,
-          y: 80 + Math.random() * 180,
-          vx: (Math.random() - 0.5) * 1.5,
+          x: 120 + Math.random() * 280,
+          y: 80 + Math.random() * 160,
+          vx: (Math.random() - 0.5) * 1.6,
           vy: (Math.random() - 0.5) * 0.8,
-          size: item.canvasType === 'arowana' ? 32 : item.canvasType === 'discus' ? 26 : 18,
+          size: item.canvasType === 'arowana' ? 36 : item.canvasType === 'discus' ? 28 : 20,
           color: item.color || '#0284c7',
+          secondaryColor: item.secondaryColor || '#38bdf8',
           canvasType: item.canvasType,
           wiggle: Math.random() * Math.PI * 2,
+          wiggleSpeed: Math.random() * 0.08 + 0.08,
         });
       }
     } else {
@@ -97,130 +102,342 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
     simulationRef.current.decor = addedItems.filter((i) => i.type === 'decor').map((i) => i.canvasType);
   }, [addedItems]);
 
+  // Hyper-Realistic Canvas Rendering Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     let animId: number;
-    const W = (canvas.width = 600);
-    const H = (canvas.height = 400);
-    let t = 0;
+    const W = (canvas.width = 620);
+    const H = (canvas.height = 420);
+    let time = 0;
 
     const render = () => {
       ctx.clearRect(0, 0, W, H);
-      t += 0.012;
+      time += 0.015;
 
-      // Tank Background
+      const tLeft = 40, tTop = 30, tW = W - 80, tH = H - 70;
+
+      // 1. Realistic Background Gradient & Lighting Environment
       if (backgroundTheme === 'deep-blue') {
         const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(0, '#bae6fd');
+        g.addColorStop(0, '#e0f2fe');
+        g.addColorStop(0.4, '#38bdf8');
         g.addColorStop(1, '#0284c7');
         ctx.fillStyle = g;
       } else if (backgroundTheme === 'amazon-forest') {
         const g = ctx.createLinearGradient(0, 0, 0, H);
-        g.addColorStop(0, '#a7f3d0');
-        g.addColorStop(1, '#065f46');
+        g.addColorStop(0, '#ecfdf5');
+        g.addColorStop(0.5, '#34d399');
+        g.addColorStop(1, '#047857');
         ctx.fillStyle = g;
       } else {
         const g = ctx.createLinearGradient(0, 0, W, H);
-        g.addColorStop(0, '#cbd5e1');
+        g.addColorStop(0, '#f1f5f9');
+        g.addColorStop(0.5, '#94a3b8');
         g.addColorStop(1, '#1e293b');
         ctx.fillStyle = g;
       }
       ctx.fillRect(0, 0, W, H);
 
-      // Sunbeam caustics
+      // 2. Realistic Volumetric Sunbeams & Water Surface Caustics
+      ctx.save();
       ctx.globalCompositeOperation = 'overlay';
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      for (let r = 0; r < 5; r++) {
+        const rayX = tLeft + (tW / 5) * r + Math.sin(time + r) * 20;
+        const rayGrad = ctx.createLinearGradient(rayX, tTop, rayX + 30, tTop + tH);
+        rayGrad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+        rayGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = rayGrad;
+        ctx.beginPath();
+        ctx.moveTo(rayX - 35, tTop);
+        ctx.lineTo(rayX + 35, tTop);
+        ctx.lineTo(rayX + 65, tTop + tH);
+        ctx.lineTo(rayX - 5, tTop + tH);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 3. Substrate Bed (Aquatic Soil / Gravel Layer)
+      const bedY = tTop + tH - 24;
+      const bedGrad = ctx.createLinearGradient(0, bedY, 0, tTop + tH);
+      bedGrad.addColorStop(0, '#334155');
+      bedGrad.addColorStop(1, '#0f172a');
+      ctx.fillStyle = bedGrad;
       ctx.beginPath();
-      ctx.moveTo(160 + Math.sin(t) * 25, 0);
-      ctx.lineTo(280 + Math.sin(t) * 25, 0);
-      ctx.lineTo(340 + Math.sin(t) * 12, H);
-      ctx.lineTo(120 + Math.sin(t) * 12, H);
+      ctx.moveTo(tLeft, bedY + 8);
+      for (let x = tLeft; x <= tLeft + tW; x += 15) {
+        ctx.lineTo(x, bedY + Math.sin(x * 0.05) * 4);
+      }
+      ctx.lineTo(tLeft + tW, tTop + tH);
+      ctx.lineTo(tLeft, tTop + tH);
       ctx.closePath();
       ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
 
-      const tLeft = 40, tTop = 30, tW = W - 80, tH = H - 70;
+      // Gravel Pebbles Texture
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      for (let p = tLeft + 10; p < tLeft + tW - 10; p += 18) {
+        ctx.beginPath();
+        ctx.arc(p + (p % 7), bedY + 12 + (p % 5), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
-      // Decor
+      // 4. Realistic Aquatic Decor (Driftwood, Mossy Rocks, Plant fronds)
       let stoneCount = 0, woodCount = 0, plantCount = 0;
       simulationRef.current.decor.forEach((dec) => {
         ctx.save();
         if (dec === 'driftwood') {
-          ctx.strokeStyle = '#92400e'; ctx.lineWidth = 14; ctx.lineCap = 'round';
-          const bx = tLeft + 80 + woodCount * 110, by = tTop + tH + 18;
-          ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + 40, by - 55); ctx.lineTo(bx + 85, by - 88); ctx.stroke();
-          ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(bx + 40, by - 55); ctx.lineTo(bx - 12, by - 105); ctx.stroke();
+          const bx = tLeft + 70 + woodCount * 110, by = bedY + 5;
+          // Organic Wood Trunk
+          const woodGrad = ctx.createLinearGradient(bx, by, bx + 50, by - 80);
+          woodGrad.addColorStop(0, '#78350f');
+          woodGrad.addColorStop(1, '#451a03');
+          ctx.strokeStyle = woodGrad;
+          ctx.lineWidth = 16;
+          ctx.lineCap = 'round';
+
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.quadraticCurveTo(bx + 20, by - 40, bx + 50, by - 75);
+          ctx.lineTo(bx + 95, by - 105);
+          ctx.stroke();
+
+          // Branches
+          ctx.lineWidth = 7;
+          ctx.beginPath();
+          ctx.moveTo(bx + 50, by - 75);
+          ctx.lineTo(bx + 15, by - 120);
+          ctx.moveTo(bx + 75, by - 90);
+          ctx.lineTo(bx + 110, by - 130);
+          ctx.stroke();
+
           woodCount++;
         } else if (dec === 'stone') {
-          ctx.fillStyle = '#94a3b8'; const bx = tLeft + 40 + stoneCount * 130, by = tTop + tH + 22;
-          ctx.beginPath(); ctx.arc(bx, by, 24, Math.PI, 0); ctx.closePath(); ctx.fill();
-          ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(bx - 5, by - 12, 10, Math.PI, 0); ctx.fill();
+          const bx = tLeft + 45 + stoneCount * 140, by = bedY + 8;
+          // Multi-toned Granite Stone
+          const stoneGrad = ctx.createRadialGradient(bx, by - 15, 5, bx, by, 30);
+          stoneGrad.addColorStop(0, '#94a3b8');
+          stoneGrad.addColorStop(1, '#334155');
+          ctx.fillStyle = stoneGrad;
+
+          ctx.beginPath();
+          ctx.ellipse(bx, by, 30, 22, 0, Math.PI, 0);
+          ctx.fill();
+
+          // Mossy Top Highlight
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath();
+          ctx.ellipse(bx - 6, by - 14, 14, 8, -0.2, Math.PI, 0);
+          ctx.fill();
+
           stoneCount++;
         } else if (dec === 'plant') {
-          ctx.fillStyle = '#10b981'; const bx = tLeft + tW - 90 - plantCount * 95, by = tTop + tH + 22;
-          for (let i = 0; i < 6; i++) {
-            ctx.beginPath(); ctx.ellipse(bx + (i - 2.5) * 13, by - 32 + Math.sin(t + i) * 6, 9, 24, (i - 2.5) * 0.15, 0, Math.PI * 2); ctx.fill();
+          const bx = tLeft + tW - 85 - plantCount * 100, by = bedY + 8;
+          ctx.fillStyle = '#059669';
+          ctx.strokeStyle = '#047857';
+          ctx.lineWidth = 1.2;
+
+          for (let leaf = 0; leaf < 7; leaf++) {
+            const sway = Math.sin(time * 2 + leaf) * 5;
+            ctx.beginPath();
+            ctx.ellipse(
+              bx + (leaf - 3) * 12 + sway,
+              by - 35 - leaf * 3,
+              8,
+              26,
+              (leaf - 3) * 0.18 + sway * 0.02,
+              0,
+              Math.PI * 2
+            );
+            ctx.fill();
+            ctx.stroke();
           }
           plantCount++;
         }
         ctx.restore();
       });
 
-      // Food
-      ctx.fillStyle = '#fbbf24';
+      // 5. Fish Food Particles
+      ctx.fillStyle = '#d97706';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1;
       simulationRef.current.food.forEach((fd, fi) => {
         fd.y += fd.speed;
-        ctx.beginPath(); ctx.arc(fd.x, fd.y, 3, 0, Math.PI * 2); ctx.fill();
-        if (fd.y > tTop + tH) simulationRef.current.food.splice(fi, 1);
+        ctx.beginPath();
+        ctx.arc(fd.x, fd.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (fd.y > bedY) simulationRef.current.food.splice(fi, 1);
       });
 
-      // Fish
+      // 6. Hyper-Realistic Fish Rendering with Fin Motion & Eye Reflections
       simulationRef.current.fish.forEach((f) => {
-        f.x += f.vx; f.y += f.vy;
+        f.x += f.vx;
+        f.y += f.vy;
+
         const foods = simulationRef.current.food;
         if (foods.length) {
           const dx = foods[0].x - f.x, dy = foods[0].y - f.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 200) { f.vx += (dx / dist) * 0.06; f.vy += (dy / dist) * 0.06; }
+          if (dist < 220) {
+            f.vx += (dx / dist) * 0.07;
+            f.vy += (dy / dist) * 0.07;
+          }
           if (dist < 18) foods.shift();
         }
+
         const spd = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
-        if (spd > 1.8) { f.vx = (f.vx / spd) * 1.8; f.vy = (f.vy / spd) * 1.8; }
-        if (f.x < tLeft + 20) { f.x = tLeft + 20; f.vx *= -1; }
-        if (f.x > tLeft + tW - 20) { f.x = tLeft + tW - 20; f.vx *= -1; }
-        if (f.y < tTop + 20) { f.y = tTop + 20; f.vy *= -1; }
-        if (f.y > tTop + tH - 18) { f.y = tTop + tH - 18; f.vy *= -1; }
+        if (spd > 1.8) {
+          f.vx = (f.vx / spd) * 1.8;
+          f.vy = (f.vy / spd) * 1.8;
+        }
+
+        if (f.x < tLeft + 25) { f.x = tLeft + 25; f.vx *= -1; }
+        if (f.x > tLeft + tW - 25) { f.x = tLeft + tW - 25; f.vx *= -1; }
+        if (f.y < tTop + 25) { f.y = tTop + 25; f.vy *= -1; }
+        if (f.y > bedY - 15) { f.y = bedY - 15; f.vy *= -1; }
 
         ctx.save();
         ctx.translate(f.x, f.y);
         ctx.rotate(Math.atan2(f.vy, f.vx));
-        f.wiggle += 0.16;
-        const wv = Math.sin(f.wiggle) * 4;
-        ctx.fillStyle = f.color;
-        ctx.beginPath(); ctx.ellipse(0, 0, f.size * 0.65, f.size * 0.38, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(-f.size * 0.55, 0); ctx.lineTo(-f.size * 1.1, -f.size * 0.4 + wv); ctx.lineTo(-f.size * 1.1, f.size * 0.4 + wv); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(f.size * 0.3, -f.size * 0.06, 3, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(f.size * 0.31, -f.size * 0.06, 1.4, 0, Math.PI * 2); ctx.fill();
+
+        f.wiggle += f.wiggleSpeed * (spd + 0.5);
+        const tailWiggle = Math.sin(f.wiggle) * 5;
+
+        // Fish Body Gradient Shading
+        const bodyGrad = ctx.createLinearGradient(0, -f.size * 0.4, 0, f.size * 0.4);
+        bodyGrad.addColorStop(0, f.color);
+        bodyGrad.addColorStop(1, f.secondaryColor || '#0284c7');
+
+        if (f.canvasType === 'discus') {
+          // Circular Discus with Stripes
+          ctx.fillStyle = bodyGrad;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, f.size * 0.75, f.size * 0.65, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = f.secondaryColor || '#38bdf8';
+          ctx.lineWidth = 2.2;
+          for (let s = -2; s <= 2; s++) {
+            ctx.beginPath();
+            ctx.arc(s * 7, 0, f.size * 0.6, -Math.PI / 3, Math.PI / 3);
+            ctx.stroke();
+          }
+
+          // Flowing Tail
+          ctx.fillStyle = f.color;
+          ctx.beginPath();
+          ctx.moveTo(-f.size * 0.7, 0);
+          ctx.quadraticCurveTo(-f.size * 1.1, -f.size * 0.5 + tailWiggle, -f.size * 1.35, tailWiggle);
+          ctx.quadraticCurveTo(-f.size * 1.1, f.size * 0.5 + tailWiggle, -f.size * 0.7, 0);
+          ctx.fill();
+
+          // Realistic Eye
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.45, -f.size * 0.15, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.46, -f.size * 0.15, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#000000';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.47, -f.size * 0.15, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+
+        } else if (f.canvasType === 'arowana') {
+          // Sleek Long Golden Arowana
+          ctx.fillStyle = bodyGrad;
+          ctx.beginPath();
+          ctx.moveTo(f.size * 1.1, 0);
+          ctx.quadraticCurveTo(f.size * 0.5, -f.size * 0.28, -f.size * 0.8, -f.size * 0.15);
+          ctx.lineTo(-f.size * 0.8, f.size * 0.15);
+          ctx.quadraticCurveTo(f.size * 0.5, f.size * 0.28, f.size * 1.1, 0);
+          ctx.fill();
+
+          // Scale overlay
+          ctx.strokeStyle = '#fbbf24';
+          ctx.lineWidth = 1.2;
+          for (let sc = -0.5; sc <= 0.6; sc += 0.25) {
+            ctx.beginPath();
+            ctx.ellipse(sc * f.size, 0, 4, 8, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // Tail
+          ctx.fillStyle = '#d97706';
+          ctx.beginPath();
+          ctx.moveTo(-f.size * 0.8, 0);
+          ctx.quadraticCurveTo(-f.size * 1.2, -f.size * 0.35 + tailWiggle, -f.size * 1.45, tailWiggle);
+          ctx.quadraticCurveTo(-f.size * 1.2, f.size * 0.35 + tailWiggle, -f.size * 0.8, 0);
+          ctx.fill();
+
+          // Eye
+          ctx.fillStyle = '#fbbf24';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.8, -f.size * 0.05, 3.8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#000000';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.82, -f.size * 0.05, 2, 0, Math.PI * 2);
+          ctx.fill();
+
+        } else if (f.canvasType === 'tetra') {
+          // Neon Tetra
+          ctx.fillStyle = bodyGrad;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, f.size * 0.7, f.size * 0.25, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Glowing Neon Stripe
+          ctx.fillStyle = f.secondaryColor || '#00f2fe';
+          ctx.shadowColor = '#00f2fe';
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.ellipse(0, -f.size * 0.05, f.size * 0.5, f.size * 0.07, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+
+          // Tail
+          ctx.fillStyle = f.color;
+          ctx.beginPath();
+          ctx.moveTo(-f.size * 0.6, 0);
+          ctx.lineTo(-f.size * 1.15, -f.size * 0.35 + tailWiggle);
+          ctx.lineTo(-f.size * 1.15, f.size * 0.35 + tailWiggle);
+          ctx.closePath();
+          ctx.fill();
+
+        } else {
+          // Standard Fish (Angelfish / Clownfish)
+          ctx.fillStyle = bodyGrad;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, f.size * 0.65, f.size * 0.42, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.moveTo(-f.size * 0.55, 0);
+          ctx.lineTo(-f.size * 1.1, -f.size * 0.4 + tailWiggle);
+          ctx.lineTo(-f.size * 1.1, f.size * 0.4 + tailWiggle);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.3, -f.size * 0.06, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#000000';
+          ctx.beginPath();
+          ctx.arc(f.size * 0.32, -f.size * 0.06, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
         ctx.restore();
       });
 
-      // Stand
-      if (standStyle === 'wood') {
-        ctx.fillStyle = '#92400e';
-        ctx.fillRect(tLeft - 10, tTop + tH, tW + 20, 20);
-        ctx.fillRect(tLeft + 18, tTop + tH + 20, 20, 32);
-        ctx.fillRect(tLeft + tW - 38, tTop + tH + 20, 20, 32);
-      } else if (standStyle === 'metal') {
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(tLeft - 4, tTop + tH, tW + 8, 8);
-        ctx.fillRect(tLeft + 8, tTop + tH + 8, 8, 44);
-        ctx.fillRect(tLeft + tW - 16, tTop + tH + 8, 8, 44);
-      }
-
-      // Tank outline & glass
+      // 7. Tank Glass Frame & Refractions
       if (tankShape === 'hexagon') {
         ctx.strokeStyle = '#0284c7'; ctx.lineWidth = 4;
         ctx.beginPath();
@@ -236,11 +453,11 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
         ctx.strokeRect(tLeft, tTop, tW, tH);
       }
 
-      // Glass shine
+      // Glass Reflections
       const shine = ctx.createLinearGradient(0, 0, W, H);
-      shine.addColorStop(0, 'rgba(255,255,255,0.3)');
+      shine.addColorStop(0, 'rgba(255,255,255,0.35)');
       shine.addColorStop(0.35, 'rgba(255,255,255,0)');
-      shine.addColorStop(1, 'rgba(255,255,255,0.1)');
+      shine.addColorStop(1, 'rgba(255,255,255,0.12)');
       ctx.fillStyle = shine;
       ctx.fillRect(tLeft, tTop, tW, tH);
 
@@ -253,7 +470,7 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const scaleX = 600 / rect.width;
+    const scaleX = 620 / rect.width;
     simulationRef.current.food.push({ x: (e.clientX - rect.left) * scaleX, y: 30, speed: Math.random() * 0.5 + 0.9 });
   };
 
@@ -300,13 +517,10 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
 
   return (
     <div style={{ position: 'relative', minHeight: 'calc(100vh - 72px)', overflow: 'hidden', padding: '40px 0 60px', background: '#f8fafc' }}>
-      {/* Animated Aquatic Background */}
       <SplashCanvas interactive={false} />
-      {/* Light overlay */}
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 40%, rgba(248,250,252,0.6) 0%, rgba(248,250,252,0.92) 100%)', pointerEvents: 'none', zIndex: 2 }} />
 
       <div className="container" style={{ position: 'relative', zIndex: 5 }}>
-        {/* Top Nav */}
         <div className="flex align-center justify-between" style={{ marginBottom: '28px' }}>
           <button onClick={onBackToStore} className="btn-secondary flex align-center gap-1" style={{ padding: '10px 18px', fontSize: '12px' }}>
             <ArrowLeft size={15} />
@@ -322,9 +536,7 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
           </div>
         </div>
 
-        {/* Studio Layout */}
         <div className="grid grid-2 gap-4 align-center">
-          {/* Left: Tank Viewport */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div
               style={{
@@ -334,7 +546,7 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
                 border: '2px solid #0284c7',
                 boxShadow: '0 12px 40px rgba(2,132,199,0.22)',
                 overflow: 'hidden',
-                height: '400px',
+                height: '420px',
               }}
             >
               <div style={{ position: 'absolute', top: '12px', left: '12px', zIndex: 20, background: 'rgba(255,255,255,0.88)', padding: '6px 14px', borderRadius: '20px', fontSize: '11px', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid rgba(2,132,199,0.2)', fontWeight: 600 }}>
@@ -346,7 +558,6 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
               <canvas ref={canvasRef} onClick={handleCanvasClick} style={{ cursor: 'crosshair', zIndex: 5, display: 'block', width: '100%', height: '100%' }} />
             </div>
 
-            {/* Stats Row */}
             <div
               className="glass-panel"
               style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', textAlign: 'center', gap: '0', background: 'rgba(255,255,255,0.9)', borderColor: 'rgba(2,132,199,0.14)' }}
@@ -364,9 +575,7 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
             </div>
           </div>
 
-          {/* Right: Config Panel */}
           <div className="glass-panel" style={{ padding: '28px', background: 'rgba(255,255,255,0.92)', borderColor: 'rgba(2,132,199,0.14)' }}>
-            {/* Tabs */}
             <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '22px' }}>
               {(['shape', 'background', 'items'] as const).map((tab) => (
                 <button
@@ -387,7 +596,6 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
               ))}
             </div>
 
-            {/* Tab Content */}
             {activeTab === 'shape' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
@@ -473,7 +681,6 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
               </div>
             )}
 
-            {/* Budget */}
             <div style={{ marginTop: '22px', paddingTop: '18px', borderTop: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: '#475569', fontSize: '14px', fontWeight: 600 }}>Tổng ước tính:</span>
@@ -481,7 +688,6 @@ export const AquariumStudioPage: React.FC<AquariumStudioPageProps> = ({ onAddToC
               </div>
             </div>
 
-            {/* Actions */}
             <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
               <button onClick={() => setAddedItems([])} className="btn-secondary" style={{ padding: '12px', width: '46px', borderRadius: '10px', display: 'flex', justifyContent: 'center' }}>
                 <RefreshCw size={15} />
