@@ -1,8 +1,11 @@
 import { useMemo, useState, useEffect } from 'react';
 import {
   ShoppingCart, RefreshCw, Compass, Info, Ruler, Droplets, Fish as FishIcon,
-  Camera, Square, Hexagon, Circle, Sun, Moon, Sparkles, TreePine, Mountain, Layers,
+  Camera, Square, Hexagon, Circle, Sun, Moon, Sparkles, TreePine, Mountain, Layers, ArrowLeft,
+  CloudUpload, CheckCircle2, Copy, X,
 } from 'lucide-react';
+import { api, authStorage } from '../services/api';
+import type { SaveDesignPayload } from '../services/api';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { Segmented } from './Segmented';
@@ -146,9 +149,15 @@ const CAMERA_PRESETS: { id: CameraPreset; label: string; icon: React.ReactNode }
 
 interface AquariumCustomizerProps {
   onAddToCart: (item: any) => void;
+  onBackToStore?: () => void;
+  initialDesign?: any;
 }
 
-export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({ onAddToCart }) => {
+export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
+  onAddToCart,
+  onBackToStore,
+  initialDesign,
+}) => {
   const [tankShape, setTankShape] = useState<TankShape>('rectangle');
   const [standStyle, setStandStyle] = useState<StandStyle>('wood');
   const [backgroundTheme, setBackgroundTheme] = useState<BackgroundTheme>('amazon-forest');
@@ -159,6 +168,50 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({ onAddToC
   const [activePreset, setActivePreset] = useState<PresetId>('custom');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('iso');
   const [autoRotate, setAutoRotate] = useState(false);
+
+  // Cloud Save & Share State (Aquarium 3D Service :8084)
+  const [isSavingCloud, setIsSavingCloud] = useState(false);
+  const [savedDesignData, setSavedDesignData] = useState<{
+    id: string;
+    shareSlug: string;
+    shareUrl: string;
+    name: string;
+    totalPrice: number;
+    viewCount?: number;
+  } | null>(null);
+
+  // Rehydrate initial design if loaded from share URL (?design=slug)
+  useEffect(() => {
+    if (initialDesign) {
+      try {
+        if (initialDesign.tankDimensions) {
+          const dims = typeof initialDesign.tankDimensions === 'string'
+            ? JSON.parse(initialDesign.tankDimensions)
+            : initialDesign.tankDimensions;
+          if (dims.shape && SHAPE_LABEL[dims.shape as TankShape]) setTankShape(dims.shape);
+          if (dims.stand && STAND_LABEL[dims.stand as StandStyle]) setStandStyle(dims.stand);
+        }
+        if (initialDesign.sceneData) {
+          const sc = typeof initialDesign.sceneData === 'string'
+            ? JSON.parse(initialDesign.sceneData)
+            : initialDesign.sceneData;
+          if (sc.backgroundTheme && BG_LABEL[sc.backgroundTheme as BackgroundTheme]) setBackgroundTheme(sc.backgroundTheme);
+          if (sc.lightingPreset) setLightingPreset(sc.lightingPreset);
+          if (sc.lightingIntensity) setLightingIntensity(sc.lightingIntensity);
+          if (sc.items && Array.isArray(sc.items)) {
+            const rehydrated = sc.items.map((it: any, i: number) => {
+              const catMatch = CATALOG.find((c) => c.name === it.name || c.id === it.id);
+              return catMatch ? { ...catMatch, id: `${catMatch.id}-${Date.now()}-${i}` } : it;
+            });
+            setAddedItems(rehydrated);
+          }
+        }
+        toast({ kind: 'info', message: `✨ Đã khôi phục bản vẽ "${initialDesign.name}" từ cơ sở dữ liệu!` });
+      } catch (e) {
+        console.warn('Failed to rehydrate initial design:', e);
+      }
+    }
+  }, [initialDesign]);
 
   const reducedMotion = useMemo(
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -252,6 +305,70 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({ onAddToC
     toast({ kind: 'success', message: '🎉 Đã lưu thiết kế bể cá 3D vào giỏ hàng!' });
   };
 
+  const handleSaveToCloud = async () => {
+    setIsSavingCloud(true);
+    try {
+      const user = authStorage.getUser();
+      const dims = {
+        shape: tankShape,
+        stand: standStyle,
+        size: tankShape === 'rectangle' ? '90x45x45 cm' : tankShape === 'hexagon' ? '70x70x60 cm' : '40x40x35 cm',
+      };
+      const scene = {
+        backgroundTheme,
+        lightingPreset,
+        lightingIntensity,
+        items: addedItems.map((it) => ({
+          id: it.id,
+          name: it.name,
+          type: it.type,
+          price: it.price,
+          canvasType: it.canvasType,
+        })),
+        activePreset,
+      };
+      const bom = {
+        itemsCount: addedItems.length,
+        tankPrice: PRICES.shapes[tankShape],
+        standPrice: PRICES.stands[standStyle],
+        backgroundPrice: PRICES.backgrounds[backgroundTheme],
+        itemsPrice: addedItems.reduce((acc, it) => acc + it.price, 0),
+      };
+
+      // Valid fallback user ID (Customer Nguyễn Phương Nam) if not logged in
+      const guestFallbackId = 'a0000000-0000-0000-0000-000000000005';
+      const payload: SaveDesignPayload = {
+        userId: user?.id || guestFallbackId,
+        name: `Bể Cá 3D — ${SHAPE_LABEL[tankShape]} (${PRESETS[activePreset as keyof typeof PRESETS]?.label ?? 'Tự thiết kế'})`,
+        tankDimensions: JSON.stringify(dims),
+        sceneData: JSON.stringify(scene),
+        bomSnapshot: JSON.stringify(bom),
+        totalPrice,
+      };
+
+      const res = await api.save3DDesign(payload);
+      if (res.success && res.data) {
+        const slug = res.data.shareSlug;
+        const shareUrl = `${window.location.origin}/?design=${slug}`;
+        setSavedDesignData({
+          id: res.data.id,
+          shareSlug: slug,
+          shareUrl,
+          name: res.data.name,
+          totalPrice: Number(res.data.totalPrice),
+          viewCount: res.data.viewCount,
+        });
+        toast({ kind: 'success', message: '🎉 Đã lưu bản vẽ 3D lên PostgreSQL thành công!' });
+      } else {
+        toast({ kind: 'danger', message: res.message || 'Không thể lưu bản vẽ lên Cloud' });
+      }
+    } catch (err: any) {
+      toast({ kind: 'danger', message: err?.message || 'Lỗi kết nối tới Aquarium 3D Service' });
+    } finally {
+      setIsSavingCloud(false);
+    }
+  };
+
   const tabOptions = [
     { value: 'shape' as const, label: 'Hình dạng', icon: <Square size={14} /> },
     { value: 'background' as const, label: 'Phông nền', icon: <Mountain size={14} /> },
@@ -268,6 +385,29 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({ onAddToC
   return (
     <section id="customizer" className="section studio-section" aria-labelledby="customizer-title">
       <div className="container-wide">
+        {onBackToStore && (
+          <div style={{ marginBottom: '20px' }}>
+            <button
+              onClick={onBackToStore}
+              className="btn-secondary flex align-center gap-1"
+              style={{
+                padding: '10px 18px',
+                fontSize: '13px',
+                borderRadius: '30px',
+                background: '#ffffff',
+                border: '1.5px solid #cbd5e1',
+                cursor: 'pointer',
+                fontWeight: 600,
+                color: '#334155',
+                display: 'inline-flex',
+                boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+              }}
+            >
+              <ArrowLeft size={16} />
+              <span>Quay Lại Cửa Hàng</span>
+            </button>
+          </div>
+        )}
         <SectionHeader
           eyebrow="Trải Nghiệm Tương Tác 3D"
           title={
@@ -395,22 +535,49 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({ onAddToC
                   items={addedItems}
                   total={totalPrice}
                 />
-                <div className="flex gap-2">
-                  <IconButton
-                    size="md"
-                    label="Làm mới"
-                    onClick={handleReset}
-                    icon={<RefreshCw size={16} />}
-                  />
-                  <Button
-                    variant="primary"
-                    size="md"
-                    fullWidth
-                    iconLeft={<ShoppingCart size={16} />}
-                    onClick={handleSaveToCart}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                  <button
+                    onClick={handleSaveToCloud}
+                    disabled={isSavingCloud}
+                    style={{
+                      width: '100%',
+                      padding: '11px 16px',
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                      border: '1px solid rgba(56, 189, 248, 0.4)',
+                      color: '#ffffff',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      cursor: isSavingCloud ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      boxShadow: '0 4px 16px rgba(2, 132, 199, 0.3)',
+                      transition: 'all 0.2s ease',
+                    }}
                   >
-                    Lưu vào giỏ
-                  </Button>
+                    {isSavingCloud ? <RefreshCw size={15} className="spin" /> : <CloudUpload size={15} />}
+                    <span>{isSavingCloud ? 'Đang lưu vào PostgreSQL...' : 'Lưu Bản Vẽ 3D & Chia Sẻ'}</span>
+                  </button>
+
+                  <div className="flex gap-2">
+                    <IconButton
+                      size="md"
+                      label="Làm mới"
+                      onClick={handleReset}
+                      icon={<RefreshCw size={16} />}
+                    />
+                    <Button
+                      variant="primary"
+                      size="md"
+                      fullWidth
+                      iconLeft={<ShoppingCart size={16} />}
+                      onClick={handleSaveToCart}
+                    >
+                      Lưu vào giỏ
+                    </Button>
+                  </div>
                 </div>
               </div>
             </aside>
@@ -443,6 +610,152 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({ onAddToC
             </div>
           </div>
         </div>
+        {/* Cloud Save & Share Modal (PostgreSQL 18 - aquarium-3d-service :8084) */}
+        {savedDesignData && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9999,
+              background: 'rgba(2, 6, 12, 0.85)',
+              backdropFilter: 'blur(10px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+            }}
+            onClick={() => setSavedDesignData(null)}
+          >
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '520px',
+                background: 'linear-gradient(180deg, #0b121f 0%, #080d16 100%)',
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                borderRadius: '20px',
+                padding: '28px',
+                boxShadow: '0 25px 60px rgba(0, 0, 0, 0.7), 0 0 35px rgba(56, 189, 248, 0.1)',
+                color: '#f8fafc',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <CheckCircle2 size={24} color="#10b981" />
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#f8fafc' }}>
+                    Đã Lưu Bản Vẽ Vào PostgreSQL!
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setSavedDesignData(null)}
+                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '6px' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(56, 189, 248, 0.18)',
+                  marginBottom: '18px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Tên thiết kế:</span>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#f8fafc' }}>{savedDesignData.name}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Tổng giá trị:</span>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8' }}>
+                    {savedDesignData.totalPrice.toLocaleString('vi-VN')}₫
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Mã chia sẻ (Slug):</span>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      fontFamily: 'monospace',
+                      color: '#34d399',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    {savedDesignData.shareSlug}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '10px' }}>
+                  Đã ghi nhận bản ghi vào bảng <code>user_designs</code> (PostgreSQL 18 - Port 8084)
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ fontSize: '12px', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                  Đường dẫn chia sẻ trực tiếp:
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    readOnly
+                    value={savedDesignData.shareUrl}
+                    style={{
+                      flex: 1,
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      background: 'rgba(0, 0, 0, 0.4)',
+                      border: '1px solid rgba(148, 163, 184, 0.2)',
+                      color: '#f8fafc',
+                      fontSize: '13px',
+                      fontFamily: 'monospace',
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(savedDesignData.shareUrl);
+                      toast({ kind: 'success', message: '📋 Đã copy link chia sẻ vào clipboard!' });
+                    }}
+                    style={{
+                      padding: '10px 16px',
+                      borderRadius: '10px',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                      color: '#38bdf8',
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Copy size={14} />
+                    <span>Copy</span>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSavedDesignData(null)}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                  border: 'none',
+                  color: '#ffffff',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

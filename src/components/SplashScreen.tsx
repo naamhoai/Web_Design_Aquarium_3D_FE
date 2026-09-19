@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { SplashCanvas } from './SplashCanvas';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ArrowRight, Sparkles, Volume2, VolumeX } from 'lucide-react';
 
 interface SplashScreenProps {
   onEnter: () => void;
@@ -7,224 +7,319 @@ interface SplashScreenProps {
 
 export const SplashScreen: React.FC<SplashScreenProps> = ({ onEnter }) => {
   const [isFading, setIsFading] = useState(false);
-  const [bubbleShower, setBubbleShower] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
 
-  const handleEnterClick = () => {
+  const handleEnterClick = useCallback(() => {
+    if (isFading) return;
     setIsFading(true);
-    setBubbleShower(true);
     setTimeout(() => {
       onEnter();
-    }, 1400);
+    }, 700);
+  }, [isFading, onEnter]);
+
+  // Keyboard shortcut: Space, Enter, or Escape to enter site
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') {
+        e.preventDefault();
+        handleEnterClick();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleEnterClick]);
+
+  const toggleSound = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsMuted((prev) => !prev);
   };
 
   return (
     <div
+      onClick={handleEnterClick}
       style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
+        inset: 0,
         width: '100vw',
         height: '100vh',
-        zIndex: 9999,
+        zIndex: 99999,
         overflow: 'hidden',
-        transition: 'transform 1.3s cubic-bezier(0.85, 0, 0.15, 1), opacity 1.1s ease',
-        transform: isFading ? 'translateY(-100%)' : 'translateY(0)',
+        background: '#04070c',
+        cursor: 'pointer',
+        transition: 'opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
         opacity: isFading ? 0 : 1,
-        backgroundColor: '#e0f2fe',
+        transform: isFading ? 'scale(1.05)' : 'scale(1)',
+        pointerEvents: isFading ? 'none' : 'auto',
       }}
     >
-      {/* Sunlit Crystal Water Background */}
-      <SplashCanvas />
-
-      {/* Sunbeams radial overlay */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.45) 0%, rgba(224, 242, 254, 0.75) 80%)',
-          pointerEvents: 'none',
-          zIndex: 2,
-        }}
-      />
-
-      {/* Main UI Overlay */}
-      <div
-        className="flex flex-col align-center justify-between"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          zIndex: 3,
-          padding: '60px 24px',
-          textAlign: 'center',
-        }}
-      >
-        {/* Top Branding */}
-        <div style={{ marginTop: '20px' }}>
-          <span
-            style={{
-              textTransform: 'uppercase',
-              fontSize: '13px',
-              letterSpacing: '5px',
-              color: 'var(--color-primary)',
-              fontWeight: 800,
-            }}
-          >
-            Boutique Aquarium & Aquascaping
-          </span>
-        </div>
-
-        {/* Center Card */}
-        <div
-          className="glass-panel"
+      {/* Background Cinematic Video */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        <video
+          src="/videos/intro.mp4"
+          autoPlay
+          loop
+          muted={isMuted}
+          playsInline
           style={{
-            padding: '48px 40px',
-            borderRadius: '28px',
-            maxWidth: '680px',
-            background: 'rgba(255, 255, 255, 0.85)',
-            borderColor: 'rgba(2, 132, 199, 0.25)',
-            boxShadow: '0 20px 60px rgba(2, 132, 199, 0.15)',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block',
+            filter: 'brightness(0.9) contrast(1.05)',
           }}
-        >
-          <h1
-            style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: 'clamp(2.8rem, 7vw, 5rem)',
-              fontWeight: 700,
-              color: '#0f172a',
-              letterSpacing: '6px',
-              lineHeight: 1.1,
-              marginBottom: '14px',
-            }}
-          >
-            AQUA REALM
-          </h1>
-          <p
-            style={{
-              color: '#475569',
-              fontSize: 'clamp(14px, 2vw, 17px)',
-              letterSpacing: '2px',
-              maxWidth: '520px',
-              margin: '0 auto 32px auto',
-              lineHeight: 1.6,
-              fontWeight: 500,
-            }}
-          >
-            Hành Trình Khám Phá Đại Dương Thu Nhỏ
-          </p>
+        />
 
-          <button
-            onClick={handleEnterClick}
-            className="pulse-glow"
-            style={{
-              width: '150px',
-              height: '150px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #0284c7, #06b6d4)',
-              border: '4px solid #ffffff',
-              color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: 800,
-              textTransform: 'uppercase',
-              letterSpacing: '2px',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              margin: '0 auto',
-              boxShadow: '0 10px 30px rgba(2, 132, 199, 0.4)',
-              transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'scale(1.06)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-            }}
-          >
-            <div
-              style={{
-                width: '14px',
-                height: '14px',
-                borderBottom: '2.5px solid #ffffff',
-                borderRight: '2.5px solid #ffffff',
-                transform: 'rotate(45deg)',
-                marginBottom: '4px',
-              }}
-            />
-            <span>Khám Phá</span>
-            <span style={{ fontSize: '9px', opacity: 0.85, letterSpacing: '1px', fontWeight: 400 }}>
-              ngay
-            </span>
-          </button>
-        </div>
+        {/* Ambient Dark Gradient Vignette Overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'radial-gradient(ellipse at 50% 50%, rgba(4, 7, 12, 0.35) 0%, rgba(4, 7, 12, 0.75) 65%, rgba(2, 4, 8, 0.95) 100%)',
+            pointerEvents: 'none',
+          }}
+        />
 
-        {/* Footer Prompt */}
-        <div style={{ marginBottom: '20px' }}>
-          <p
-            style={{
-              color: '#475569',
-              fontSize: '12px',
-              fontWeight: 600,
-              letterSpacing: '1px',
-            }}
-          >
-            Nhấp chuột lên màn hình để tạo sóng nước và trêu đùa đàn cá
-          </p>
-        </div>
-      </div>
-
-      {/* Bubble Transition Shower */}
-      {bubbleShower && (
+        {/* Cinematic Top & Bottom Shadow Vignette */}
         <div
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
             width: '100%',
-            height: '100%',
-            zIndex: 99999,
+            height: '140px',
+            background: 'linear-gradient(to bottom, rgba(4, 7, 12, 0.9) 0%, transparent 100%)',
             pointerEvents: 'none',
           }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            width: '100%',
+            height: '160px',
+            background: 'linear-gradient(to top, rgba(4, 7, 12, 0.95) 0%, transparent 100%)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+
+      {/* Top Header Bar */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          zIndex: 10,
+          padding: '24px 32px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        {/* Brand Eyebrow */}
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 16px',
+            borderRadius: '24px',
+            background: 'rgba(7, 12, 20, 0.65)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            backdropFilter: 'blur(12px)',
+          }}
         >
-          {Array.from({ length: 60 }).map((_, i) => {
-            const size = Math.random() * 25 + 10;
-            const left = Math.random() * 100;
-            const delay = Math.random() * 0.8;
-            const duration = Math.random() * 0.8 + 0.6;
-            return (
-              <div
-                key={i}
-                style={{
-                  position: 'absolute',
-                  bottom: '-50px',
-                  left: `${left}%`,
-                  width: `${size}px`,
-                  height: `${size}px`,
-                  borderRadius: '50%',
-                  border: '1.5px solid rgba(2, 132, 199, 0.6)',
-                  background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8), rgba(2, 132, 199, 0.2))',
-                  animation: `transition-bubble ${duration}s cubic-bezier(0.25, 1, 0.5, 1) forwards`,
-                  animationDelay: `${delay}s`,
-                }}
-              />
-            );
-          })}
-          <style>{`
-            @keyframes transition-bubble {
-              0% { transform: translateY(0) scale(0.5); opacity: 0; }
-              20% { opacity: 0.9; }
-              100% { transform: translateY(-115vh) scale(1.5); opacity: 0; }
-            }
-          `}</style>
+          <Sparkles size={14} color="#38bdf8" />
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '2px',
+              color: '#38bdf8',
+            }}
+          >
+            AquaStudio 3D • Cinema Intro
+          </span>
         </div>
-      )}
+
+        {/* Action Controls: Sound & Skip */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Mute/Unmute Button */}
+          <button
+            onClick={toggleSound}
+            style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '50%',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              background: 'rgba(7, 12, 20, 0.65)',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backdropFilter: 'blur(12px)',
+              transition: 'all 0.2s',
+            }}
+            title={isMuted ? 'Bật âm thanh' : 'Tắt âm thanh'}
+          >
+            {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} color="#38bdf8" />}
+          </button>
+
+          {/* Quick Skip Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleEnterClick();
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 18px',
+              borderRadius: '20px',
+              border: '1px solid rgba(255, 255, 255, 0.18)',
+              background: 'rgba(7, 12, 20, 0.65)',
+              color: '#cbd5e1',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              backdropFilter: 'blur(12px)',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#38bdf8';
+              e.currentTarget.style.borderColor = '#38bdf8';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#cbd5e1';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.18)';
+            }}
+          >
+            <span>Bỏ qua</span>
+            <ArrowRight size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Center Overlay Content */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 10,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+          textAlign: 'center',
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            maxWidth: '680px',
+            padding: '40px 48px',
+            borderRadius: '28px',
+            background: 'rgba(6, 11, 20, 0.72)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: '0 25px 80px rgba(0, 0, 0, 0.7), 0 0 50px rgba(6, 182, 212, 0.15)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '16px',
+          }}
+        >
+          {/* Eyebrow */}
+          <span
+            style={{
+              textTransform: 'uppercase',
+              fontSize: '11px',
+              fontWeight: 900,
+              letterSpacing: '3px',
+              color: '#06b6d4',
+            }}
+          >
+            Boutique Aquarium & Aquascaping
+          </span>
+
+          {/* Heading */}
+          <h1
+            style={{
+              fontFamily: 'var(--font-heading)',
+              fontSize: 'clamp(28px, 5vw, 48px)',
+              fontWeight: 800,
+              color: '#f8fafc',
+              lineHeight: 1.15,
+              letterSpacing: '-0.5px',
+              margin: 0,
+            }}
+          >
+            ĐẠI DƯƠNG THU NHỎ TRONG TẦNG KHÔNG GIAN
+          </h1>
+
+          {/* Description */}
+          <p
+            style={{
+              color: '#94a3b8',
+              fontSize: 'clamp(13px, 1.6vw, 15px)',
+              lineHeight: 1.6,
+              maxWidth: '520px',
+              margin: '4px 0 16px 0',
+            }}
+          >
+            Khám phá tuyệt tác hồ cá thủy sinh 360° tương tác đa tầng, chiêm ngưỡng đàn sinh vật sống động với công nghệ hình ảnh chuẩn điện ảnh.
+          </p>
+
+          {/* Main Action Button */}
+          <button
+            onClick={handleEnterClick}
+            className="btn-primary"
+            style={{
+              padding: '16px 40px',
+              fontSize: '14px',
+              fontWeight: 800,
+              letterSpacing: '1.5px',
+              borderRadius: '30px',
+              textTransform: 'uppercase',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '10px',
+              boxShadow: '0 10px 30px rgba(2, 132, 199, 0.45)',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'scale(1.05)';
+              e.currentTarget.style.boxShadow = '0 14px 40px rgba(6, 182, 212, 0.6)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.boxShadow = '0 10px 30px rgba(2, 132, 199, 0.45)';
+            }}
+          >
+            <span>BƯỚC VÀO TRẢI NGHIỆM</span>
+            <ArrowRight size={16} />
+          </button>
+
+          {/* Space / Click hint */}
+          <span
+            style={{
+              fontSize: '11px',
+              color: '#64748b',
+              letterSpacing: '0.5px',
+              marginTop: '6px',
+            }}
+          >
+            Nhấn <kbd style={{ padding: '2px 6px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', color: '#cbd5e1' }}>Space</kbd> hoặc nhấp vào bất kỳ đâu để vào trang web
+          </span>
+        </div>
+      </div>
     </div>
   );
 };

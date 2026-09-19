@@ -308,3 +308,28 @@ h1, h2, h3, h4, h5, h6 {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
 }
+
+@keyframes shockwave-burst {
+  0% {
+    transform: scale(0.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+

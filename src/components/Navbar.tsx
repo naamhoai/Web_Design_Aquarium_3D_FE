@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Waves, Search, ShoppingCart, Menu, X, Sparkles } from 'lucide-react';
+import { Waves, Search, ShoppingCart, Menu, X, Sparkles, User, LogOut } from 'lucide-react';
+import { api } from '../services/api';
+import type { UserProfile } from '../services/api';
 
 interface NavbarProps {
   cartCount: number;
@@ -7,6 +9,10 @@ interface NavbarProps {
   onNavigate: (section: string) => void;
   activeSection: string;
   pageView: 'store' | 'studio';
+  currentUser?: UserProfile | null;
+  onOpenAuth?: () => void;
+  onLogout?: () => void;
+  onOpenTelemetry?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -15,9 +21,32 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   activeSection,
   pageView,
+  currentUser,
+  onOpenAuth,
+  onLogout,
+  onOpenTelemetry,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isLive, setIsLive] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.checkHealth().then((status) => {
+      if (isMounted) setIsLive(status);
+    });
+
+    const interval = setInterval(() => {
+      api.checkHealth().then((status) => {
+        if (isMounted) setIsLive(status);
+      });
+    }, 10000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 16);
@@ -27,6 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const navLinks = [
     { id: 'home', label: 'Trang Chủ' },
+    { id: 'exploded', label: 'Bóc Tách 360°' },
     { id: 'shop', label: 'Cửa Hàng' },
     { id: 'services', label: 'Dịch Vụ' },
     { id: 'customizer', label: 'Studio 3D' },
@@ -48,11 +78,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         height: '72px',
         display: 'flex',
         alignItems: 'center',
-        background: scrolled ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.75)',
-        borderBottom: scrolled ? '1px solid rgba(2,132,199,0.14)' : '1px solid rgba(2,132,199,0.06)',
-        backdropFilter: 'blur(18px)',
-        WebkitBackdropFilter: 'blur(18px)',
-        boxShadow: scrolled ? '0 4px 24px rgba(15,23,42,0.06)' : 'none',
+        background: scrolled ? 'rgba(7, 12, 20, 0.92)' : 'rgba(7, 12, 20, 0.75)',
+        borderBottom: '1px solid rgba(56, 189, 248, 0.15)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        boxShadow: scrolled ? '0 4px 24px rgba(0, 0, 0, 0.4)' : 'none',
         transition: 'all 0.35s ease',
       }}
     >
@@ -60,26 +90,64 @@ export const Navbar: React.FC<NavbarProps> = ({
         className="container flex align-center justify-between"
         style={{ width: '100%' }}
       >
-        {/* Logo */}
-        <div
-          onClick={() => handleLinkClick('home')}
-          className="flex align-center gap-1"
-          style={{ cursor: 'pointer', zIndex: 1002 }}
-        >
-          <Waves size={28} color="#0284c7" />
-          <span
+        {/* Logo & API Status Badge */}
+        <div className="flex align-center gap-2" style={{ zIndex: 1002 }}>
+          <div
+            onClick={() => handleLinkClick('home')}
+            className="flex align-center gap-1"
+            style={{ cursor: 'pointer' }}
+          >
+            <Waves size={28} color="#38bdf8" />
+            <span
+              style={{
+                fontFamily: 'var(--font-heading)',
+                fontSize: '22px',
+                fontWeight: 800,
+                background: 'linear-gradient(90deg, #ffffff 10%, #38bdf8 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                letterSpacing: '1px',
+              }}
+            >
+              AquaRealm
+            </span>
+          </div>
+
+          <div
+            onClick={onOpenTelemetry}
+            role="button"
+            tabIndex={0}
+            title="Bấm để xem chi tiết trạng thái 6 Microservices Backend & PostgreSQL"
             style={{
-              fontFamily: 'var(--font-heading)',
-              fontSize: '22px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              fontSize: '11px',
               fontWeight: 700,
-              background: 'linear-gradient(90deg, #0f172a 10%, #0284c7 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              letterSpacing: '1px',
+              letterSpacing: '0.3px',
+              background: isLive ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+              border: isLive ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(245, 158, 11, 0.35)',
+              color: isLive ? '#34d399' : '#fbbf24',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: isLive ? '0 0 12px rgba(16, 185, 129, 0.15)' : 'none',
             }}
           >
-            AquaRealm
-          </span>
+            <span
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: isLive ? '#10b981' : '#f59e0b',
+                boxShadow: isLive ? '0 0 8px #10b981' : 'none',
+              }}
+            />
+            <span className="hide-mobile">
+              {isLive === null ? 'Đang kết nối...' : isLive ? '6 Services Online (8080)' : 'Chế độ Demo'}
+            </span>
+          </div>
         </div>
 
         {/* Desktop Links */}
@@ -97,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 style={{
                   background: 'transparent',
                   border: 'none',
-                  color: isActive ? '#0284c7' : '#475569',
+                  color: isActive ? '#38bdf8' : '#94a3b8',
                   fontSize: '14px',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -132,24 +200,97 @@ export const Navbar: React.FC<NavbarProps> = ({
             style={{
               background: 'transparent',
               border: 'none',
-              color: '#475569',
+              color: '#94a3b8',
               cursor: 'pointer',
               padding: '8px',
               borderRadius: '50%',
-              transition: 'background 0.2s',
+              transition: 'all 0.2s',
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(2,132,199,0.07)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            onMouseEnter={e => (e.currentTarget.style.color = '#38bdf8')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
           >
             <Search size={19} />
           </button>
+
+          {/* User Auth Profile / Login Button */}
+          {currentUser ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'rgba(15, 23, 42, 0.85)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                borderRadius: '24px',
+                padding: '4px 12px 4px 6px',
+              }}
+            >
+              <div
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #0284c7, #06b6d4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#fff',
+                }}
+              >
+                {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }} className="hide-mobile">
+                {currentUser.fullName?.split(' ').slice(-1)[0] || 'Khách'}
+              </span>
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Đăng xuất"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAuth}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(56, 189, 248, 0.1)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                borderRadius: '20px',
+                padding: '8px 14px',
+                color: '#f8fafc',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              <User size={15} color="#38bdf8" />
+              <span className="hide-mobile">Đăng Nhập</span>
+            </button>
+          )}
 
           {/* Cart */}
           <button
             onClick={onCartClick}
             style={{
-              background: 'rgba(2,132,199,0.06)',
-              border: '1px solid rgba(2,132,199,0.18)',
+              background: 'rgba(56, 189, 248, 0.1)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
               borderRadius: '50%',
               width: '40px',
               height: '40px',
@@ -161,15 +302,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               transition: 'all 0.25s',
             }}
             onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(2,132,199,0.12)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = '#0284c7';
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(56, 189, 248, 0.2)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#38bdf8';
             }}
             onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(2,132,199,0.06)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(2,132,199,0.18)';
+              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(56, 189, 248, 0.1)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(56, 189, 248, 0.25)';
             }}
           >
-            <ShoppingCart size={17} color="#0f172a" />
+            <ShoppingCart size={17} color="#f8fafc" />
             {cartCount > 0 && (
               <span
                 style={{
