@@ -27,56 +27,8 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
   currentUser,
 }) => {
   const [loading, setLoading] = useState(false);
-  const [services, setServices] = useState<TelemetryService[]>([
-    {
-      name: 'Spring Cloud Gateway',
-      serviceId: 'gateway-service',
-      port: 8080,
-      targetEndpoint: 'http://localhost:8080/api/v1/categories',
-      online: true,
-      latencyMs: 12,
-    },
-    {
-      name: 'Identity Service (Auth & Security)',
-      serviceId: 'identity-service',
-      port: 8081,
-      targetEndpoint: 'http://localhost:8080/api/v1/auth/me',
-      online: true,
-      latencyMs: 18,
-    },
-    {
-      name: 'Catalog Service (Danh Mục & Sản Phẩm)',
-      serviceId: 'catalog-service',
-      port: 8083,
-      targetEndpoint: 'http://localhost:8080/api/v1/categories',
-      online: true,
-      latencyMs: 15,
-    },
-    {
-      name: 'Aquarium 3D Service (BOM & Bản Vẽ)',
-      serviceId: 'aquarium-3d-service',
-      port: 8084,
-      targetEndpoint: 'http://localhost:8080/api/v1/3d/boms/COMBO-NANO-30/exploded-view',
-      online: true,
-      latencyMs: 22,
-    },
-    {
-      name: 'Inventory Service (Kho & Trại Cá)',
-      serviceId: 'inventory-service',
-      port: 8085,
-      targetEndpoint: 'http://localhost:8080/api/v1/inventory/alerts/low-stock',
-      online: true,
-      latencyMs: 14,
-    },
-    {
-      name: 'Order Service (Đơn Hàng & Giỏ DB)',
-      serviceId: 'order-service',
-      port: 8086,
-      targetEndpoint: 'http://localhost:8080/api/v1/orders/user/a0000000-0000-0000-0000-000000000005',
-      online: true,
-      latencyMs: 16,
-    },
-  ]);
+  // Không hiển thị số liệu giả trước khi đo thật
+  const [services, setServices] = useState<TelemetryService[]>([]);
 
   const [lastCheckTime, setLastCheckTime] = useState<string>('');
 
@@ -104,6 +56,7 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
   if (!isOpen) return null;
 
   const onlineCount = services.filter((s) => s.online).length;
+  const allOnline = services.length > 0 && onlineCount === services.length;
 
   return (
     <div
@@ -163,12 +116,12 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
                     borderRadius: '12px',
                     fontSize: '11px',
                     fontWeight: 700,
-                    background: onlineCount === 4 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                    color: onlineCount === 4 ? '#34d399' : '#fbbf24',
-                    border: `1px solid ${onlineCount === 4 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                    background: allOnline ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                    color: allOnline ? '#34d399' : '#fbbf24',
+                    border: `1px solid ${allOnline ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
                   }}
                 >
-                  {onlineCount}/4 Online
+                  {services.length === 0 ? 'Đang đo...' : `${onlineCount}/${services.length} Online`}
                 </span>
               </div>
               <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 0 0' }}>
@@ -238,7 +191,7 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
                     </span>
                   </div>
                   <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
-                    Forwarded via Gateway: {svc.targetEndpoint.replace('http://localhost:8080', '')}
+                    Qua Gateway: /api/v1{svc.targetEndpoint}
                   </span>
                 </div>
               </div>
@@ -293,8 +246,8 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
           >
             <Database size={20} color="#38bdf8" />
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>PostgreSQL 18 Native</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>38 Bảng · Cổng 5432 · aquarium_db</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>PostgreSQL</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>CSDL dùng chung của các microservice</div>
             </div>
           </div>
 
@@ -316,7 +269,7 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
                 {currentUser ? `Đã xác thực: ${currentUser.fullName}` : 'Phiên Khách (Chưa Đăng Nhập)'}
               </div>
               <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                {currentUser ? `Vai trò: ${currentUser.role} · Token JWT Active` : 'Đăng nhập để tự động gán ID thiết kế'}
+                {currentUser ? `Vai trò: ${currentUser.role} · Phiên JWT đang hoạt động` : 'Đăng nhập để đặt hàng và lưu bản vẽ 3D'}
               </div>
             </div>
           </div>

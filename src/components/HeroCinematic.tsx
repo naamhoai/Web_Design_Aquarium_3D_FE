@@ -5,6 +5,7 @@ import {
   MapPin, Truck, Store, ShieldCheck, Eye, Database
 } from 'lucide-react';
 import { api } from '../services/api';
+import type { AddToCartInput } from '../cart';
 
 interface LayerSpec {
   label: string;
@@ -31,6 +32,8 @@ interface LayerInfo {
   shippingInfo: string;
   warranty: string;
   stockStatus: string;
+  /** SKU thật từ BOM của backend — chỉ có khi đã tải được dữ liệu live. */
+  sku?: string;
 }
 
 const LAYERS: LayerInfo[] = [
@@ -179,7 +182,7 @@ const LAYERS: LayerInfo[] = [
 interface HeroCinematicProps {
   onExploreExploded?: () => void;
   onOpenCustomizer: () => void;
-  onAddToCart: (item: any) => void;
+  onAddToCart: (item: AddToCartInput) => void;
   isExplodedExternal?: boolean;
   onExplodeChange?: (exploded: boolean) => void;
 }
@@ -198,6 +201,8 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
   const [cartFeedback, setCartFeedback] = useState<string | null>(null);
   const [layers, setLayers] = useState<LayerInfo[]>(LAYERS);
   const [isLiveBom, setIsLiveBom] = useState(false);
+  /** Combo nguyên bộ từ backend (SKU + giá thật). */
+  const [combo, setCombo] = useState<{ sku: string; price: number; name: string } | null>(null);
 
   // Fetch 6-Layer Exploded BOM from aquarium-3d-service via Gateway (Port 8080 -> 8084)
   useEffect(() => {
@@ -207,16 +212,20 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
         const bom = await api.getExplodedBom('COMBO-NANO-30');
         if (bom && bom.layers && bom.layers.length > 0 && isMounted) {
           setIsLiveBom(true);
+          setCombo({ sku: bom.comboSku, price: Number(bom.totalPrice), name: bom.comboName });
           setLayers((prev) =>
             prev.map((l, idx) => {
-              const bLayer = bom.layers[idx];
+              // Ghép theo layerIndex (1-6) thay vì vị trí mảng để không lệch tầng
+              const bLayer = bom.layers.find((b) => b.layerIndex === idx + 1);
               if (!bLayer) return l;
               return {
                 ...l,
                 name: bLayer.componentName || bLayer.layerName || l.name,
                 category: bLayer.layerName || l.category,
                 price: Number(bLayer.price) || l.price,
-                highlight: bLayer.description || l.highlight,
+                // Giá tham khảo tĩnh không còn đúng với giá live → không hiển thị "giảm giá" sai
+                originalPrice: 0,
+                sku: bLayer.sku,
               };
             })
           );
@@ -233,8 +242,8 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
 
   // Sync external explode state
   useEffect(() => {
-    if (isExplodedExternal !== undefined && isExplodedExternal !== isExploded) {
-      setIsExploded(isExplodedExternal);
+    if (isExplodedExternal !== undefined) {
+      setIsExploded((current) => (current === isExplodedExternal ? current : isExplodedExternal));
     }
   }, [isExplodedExternal]);
 
@@ -405,7 +414,7 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
             else if (clickYRatio < 0.80) targetIndex = 4;
             else targetIndex = 5;
 
-            setActiveLayer(LAYERS[targetIndex]);
+            setActiveLayer(layers[targetIndex]);
           }
         }
       } else {
@@ -428,27 +437,39 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
   // Add to cart handlers
   const handleAddSingleLayer = (layer: LayerInfo) => {
     onAddToCart({
-      id: layer.id,
+      id: layer.sku ? `bom-${layer.sku}` : layer.id,
       name: layer.name,
       price: layer.price,
       description: layer.highlight,
+      sku: layer.sku,
     });
     setCartFeedback(layer.id);
     setTimeout(() => setCartFeedback(null), 2000);
   };
 
-  const totalBundlePrice = LAYERS.reduce((acc, l) => acc + l.price, 0);
+  // Giá trọn gói tính từ giá các tầng đang hiển thị (giá live từ backend nếu có)
+  const totalBundlePrice = layers.reduce((acc, l) => acc + l.price, 0);
+  const allLayersHaveSku = layers.every((l) => Boolean(l.sku));
 
   const handleBuyEntireTank = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onAddToCart({
-      id: 'full-modular-aquarium-set',
-      name: 'Trọn Gói Hồ Thủy Sinh Bóc Tách Đa Tầng 360° Studio',
-      price: isExploded ? totalBundlePrice : 4850000,
-      description: isExploded
-        ? 'Gồm đầy đủ 6 linh kiện bóc tách: Đèn LED, Nắp kính, Cây lũa rêu & Đàn cá Neon, Bể kính siêu trong, Phân nền ADA, Lọc ngầm Silent-Flow.'
-        : 'Trọn bộ Hồ cá Nano Cube 30cm Setup sẵn hoàn chỉnh kèm đèn cantilever và hệ lọc ngầm cao cấp.',
-    });
+    if (isExploded) {
+      onAddToCart({
+        id: 'bundle-6-layers',
+        name: 'Trọn Gói 6 Linh Kiện Bóc Tách — Nano Cube 30cm',
+        price: totalBundlePrice,
+        description: 'Gồm 6 linh kiện: Đèn LED, Nắp kính, Lũa rêu & Đàn cá Neon, Bể kính siêu trong, Phân nền ADA, Lọc ngầm Silent-Flow.',
+        lines: allLayersHaveSku ? layers.map((l) => ({ sku: l.sku!, quantity: 1 })) : [],
+      });
+    } else {
+      onAddToCart({
+        id: combo ? `combo-${combo.sku}` : 'combo-nano-cube-demo',
+        name: combo?.name ?? 'Trọn bộ Hồ cá Nano Cube 30cm Setup sẵn',
+        price: combo?.price ?? 3850000,
+        description: 'Trọn bộ Hồ cá Nano Cube 30cm setup sẵn hoàn chỉnh kèm đèn cantilever và hệ lọc ngầm cao cấp.',
+        sku: combo?.sku,
+      });
+    }
     setCartFeedback('full');
     setTimeout(() => setCartFeedback(null), 2200);
   };
@@ -1047,7 +1068,9 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
                 {cartFeedback === 'full'
                   ? 'Đã Thêm Vào Giỏ!'
                   : isExploded
-                  ? 'Mua Trọn Gói 6 Tầng'
+                  ? `Mua Trọn Gói 6 Tầng · ${totalBundlePrice.toLocaleString('vi-VN')}₫`
+                  : combo
+                  ? `Mua Hồ Setup Hoàn Chỉnh · ${combo.price.toLocaleString('vi-VN')}₫`
                   : 'Mua Hồ Setup Hoàn Chỉnh'}
               </span>
             </button>
@@ -1370,21 +1393,25 @@ export const HeroCinematic: React.FC<HeroCinematicProps> = ({
                   <span style={{ fontSize: '24px', fontWeight: 900, color: '#38bdf8', letterSpacing: '-0.5px' }}>
                     {activeLayer.price.toLocaleString()}đ
                   </span>
-                  <span style={{ fontSize: '13px', color: '#64748b', textDecoration: 'line-through' }}>
-                    {activeLayer.originalPrice.toLocaleString()}đ
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      color: '#ef4444',
-                      background: 'rgba(239, 68, 68, 0.15)',
-                      padding: '2px 8px',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    -{Math.round((1 - activeLayer.price / activeLayer.originalPrice) * 100)}%
-                  </span>
+                  {activeLayer.originalPrice > activeLayer.price && (
+                    <>
+                      <span style={{ fontSize: '13px', color: '#64748b', textDecoration: 'line-through' }}>
+                        {activeLayer.originalPrice.toLocaleString()}đ
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          color: '#ef4444',
+                          background: 'rgba(239, 68, 68, 0.15)',
+                          padding: '2px 8px',
+                          borderRadius: '8px',
+                        }}
+                      >
+                        -{Math.round((1 - activeLayer.price / activeLayer.originalPrice) * 100)}%
+                      </span>
+                    </>
+                  )}
                 </div>
                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>
                   Đã bao gồm VAT • Cam kết chính hãng 100%

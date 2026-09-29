@@ -1,6 +1,11 @@
 /**
- * API Client Service for 3D Aquarium Platform
- * Connects Frontend (React 19 / Three.js) with Backend Microservices via API Gateway (Port 8080)
+ * API client cho nền tảng Bể Cá 3D — mọi request đi qua API Gateway (mặc định http://localhost:8080).
+ *
+ * Mô hình phiên đăng nhập (an toàn trước XSS):
+ *  - Access token (JWT, sống 15 phút) CHỈ lưu trong bộ nhớ JS, không ghi vào localStorage.
+ *  - Refresh token nằm trong cookie HttpOnly do server đặt → JavaScript không đọc được.
+ *  - Khi tải lại trang hoặc access token hết hạn, client gọi /auth/refresh để lấy token mới.
+ *  - Mọi request gửi header X-Aquarium-Client (server dùng để chống CSRF cho endpoint dùng cookie).
  */
 
 export interface ApiResponse<T> {
@@ -11,12 +16,18 @@ export interface ApiResponse<T> {
   timestamp?: string;
 }
 
+/** Kết quả chuẩn hóa trả về cho UI. */
+export interface ApiResult<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  status?: number;
+  fieldErrors?: Record<string, string>;
+}
+
 export interface SpringPage<T> {
   content: T[];
-  totalElements: number;
-  totalPages: number;
-  size: number;
-  number: number;
+  page?: { size: number; number: number; totalElements: number; totalPages: number };
 }
 
 export interface BackendProduct {
@@ -36,6 +47,11 @@ export interface BackendProduct {
   totalSales?: number;
   rating?: number;
   thumbnailUrl?: string;
+  /** SKU dùng để đặt hàng — giá thật do server tính lại khi checkout. */
+  defaultVariantId?: string;
+  defaultVariantSku?: string;
+  price?: number;
+  originalPrice?: number;
 }
 
 export interface BackendCategory {
@@ -55,7 +71,6 @@ export interface BomLayerItem {
   componentName: string;
   sku: string;
   price: number;
-  description?: string;
   isRequired: boolean;
   canSwap: boolean;
   asset3dUrl?: string;
@@ -77,9 +92,9 @@ export interface UserDesignResponse {
   shareSlug: string;
   shareUrl: string;
   thumbnailUrl?: string;
-  tankDimensions: string;
-  sceneData: string;
-  bomSnapshot: string;
+  tankDimensions?: string;
+  sceneData?: string;
+  bomSnapshot?: string;
   totalPrice: number;
   isPublic: boolean;
   viewCount: number;
@@ -87,15 +102,21 @@ export interface UserDesignResponse {
   createdAt?: string;
 }
 
+export interface DesignComponent {
+  sku: string;
+  quantity: number;
+}
+
 export interface SaveDesignPayload {
-  userId?: string;
   name: string;
   tankDimensions: string;
   sceneData: string;
-  bomSnapshot: string;
-  totalPrice: number;
-  thumbnailUrl?: string;
+  /** Linh kiện theo SKU — server tự tính tổng giá. */
+  components: DesignComponent[];
+  isPublic?: boolean;
 }
+
+export type UserRole = 'CUSTOMER' | 'SUPPLIER' | 'ADMIN' | 'TECHNICIAN';
 
 export interface UserProfile {
   id: string;
@@ -103,15 +124,15 @@ export interface UserProfile {
   fullName: string;
   phone?: string;
   avatarUrl?: string;
-  role: 'CUSTOMER' | 'SUPPLIER' | 'ADMIN' | 'TECHNICIAN';
+  role: UserRole;
   status: string;
   emailVerified?: boolean;
 }
 
 export interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
   tokenType: string;
+  expiresIn: number;
   user: UserProfile;
 }
 
@@ -127,46 +148,51 @@ export interface RegisterPayload {
   phone?: string;
 }
 
-export interface AddToCartPayload {
-  userId: string;
-  productVariantId: string;
-  quantity?: number;
-  userDesignId?: string;
-  customConfiguration?: string;
+/** Phương thức thanh toán backend hỗ trợ. "Chuyển khoản VietQR" = BANK_TRANSFER. */
+export type PaymentMethod = 'COD' | 'BANK_TRANSFER';
+
+export interface ShippingAddress {
+  recipientName: string;
+  phone: string;
+  addressLine: string;
+  ward?: string;
+  district?: string;
+  city?: string;
 }
 
 export interface CheckoutPayload {
-  userId: string;
-  shippingAddress: string;
-  paymentMethod?: 'COD' | 'VIETQR' | 'CREDIT_CARD';
+  /** Giá/phí ship do server tính — client chỉ gửi SKU và số lượng. */
+  items: { sku: string; quantity: number }[];
+  paymentMethod: PaymentMethod;
+  shippingAddress: ShippingAddress;
   customerNotes?: string;
-  shippingFee?: number;
-  discountAmount?: number;
-  recipientName?: string;
-  recipientPhone?: string;
 }
 
 export interface OrderItemResponse {
   id: string;
+  subOrderId: string;
   productVariantId: string;
   sku: string;
   productName: string;
   variantName: string;
-  unitPrice: number;
+  price: number;
   quantity: number;
   subtotal: number;
-  customConfiguration?: string;
+  isLivestock?: boolean;
+  isFragileGlass?: boolean;
 }
 
 export interface SubOrderResponse {
   id: string;
-  subOrderNumber: string;
+  orderId: string;
   supplierId: string;
-  storeName: string;
-  totalAmount: number;
+  storeName?: string;
+  subtotal: number;
   shippingFee: number;
-  finalAmount: number;
+  commissionAmount: number;
+  payoutAmount: number;
   status: string;
+  createdAt?: string;
   items: OrderItemResponse[];
 }
 
@@ -179,7 +205,7 @@ export interface OrderResponseData {
   discountAmount: number;
   finalAmount: number;
   status: string;
-  paymentMethod: string;
+  paymentMethod: PaymentMethod | string;
   paymentStatus: string;
   shippingAddress: string;
   customerNotes?: string;
@@ -187,405 +213,306 @@ export interface OrderResponseData {
   subOrders: SubOrderResponse[];
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
-const DEFAULT_TIMEOUT_MS = 6000;
+export interface CompatibilityResult {
+  isCompatible: boolean;
+  isBioLoadSafe: boolean;
+  totalBioLoad: number;
+  maxBioLoadCapacity: number;
+  warnings: string[];
+  recommendedPhRange: string;
+  recommendedTempRange: string;
+}
 
-const TOKEN_KEY = 'aquarium_access_token';
-const USER_KEY = 'aquarium_user_profile';
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+const DEFAULT_TIMEOUT_MS = 8000;
+const CLIENT_HEADER = { 'X-Aquarium-Client': 'web' };
+/** Chỉ là "gợi ý" có phiên cũ để thử khôi phục khi tải trang — KHÔNG chứa token. */
+const SESSION_HINT_KEY = 'aquarium_session_hint';
+/** Khóa cũ lưu token trong localStorage (phiên bản trước) — xóa bỏ khi khởi động. */
+const LEGACY_KEYS = ['aquarium_access_token', 'aquarium_user_profile'];
 
-export const authStorage = {
-  getToken(): string | null {
-    try {
-      return localStorage.getItem(TOKEN_KEY);
-    } catch {
-      return null;
-    }
-  },
-  setAuth(auth: AuthResponse): void {
-    try {
-      localStorage.setItem(TOKEN_KEY, auth.accessToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(auth.user));
-    } catch (e) {
-      console.error(e);
-    }
-  },
-  getUser(): UserProfile | null {
-    try {
-      const raw = localStorage.getItem(USER_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  },
-  clear(): void {
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-    } catch (e) {
-      console.error(e);
-    }
-  },
-};
+// ------------------------------------------------------------------ Trạng thái phiên (trong bộ nhớ)
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
+let accessToken: string | null = null;
+let accessTokenExpiresAt = 0;
+let currentUser: UserProfile | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
+const listeners = new Set<(user: UserProfile | null) => void>();
+
+function safeStorage(action: (s: Storage) => void) {
+  try {
+    action(localStorage);
+  } catch {
+    /* trình duyệt chặn storage — bỏ qua */
+  }
+}
+
+safeStorage((s) => LEGACY_KEYS.forEach((k) => s.removeItem(k)));
+
+function setSession(auth: AuthResponse) {
+  accessToken = auth.accessToken;
+  accessTokenExpiresAt = Date.now() + Math.max(30, auth.expiresIn - 30) * 1000;
+  currentUser = auth.user;
+  safeStorage((s) => s.setItem(SESSION_HINT_KEY, '1'));
+  listeners.forEach((cb) => cb(currentUser));
+}
+
+function clearSession() {
+  const hadUser = currentUser !== null;
+  accessToken = null;
+  accessTokenExpiresAt = 0;
+  currentUser = null;
+  safeStorage((s) => s.removeItem(SESSION_HINT_KEY));
+  if (hadUser) listeners.forEach((cb) => cb(null));
+}
+
+// ------------------------------------------------------------------ HTTP helpers
+
+async function rawFetch(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS, withAuth = true): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const token = authStorage.getToken();
-
+  const method = (init.method || 'GET').toUpperCase();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
+    // Header chống CSRF chỉ cần cho request thay đổi dữ liệu; GET ẩn danh không cần → tránh preflight thừa
+    ...(method === 'GET' ? {} : CLIENT_HEADER),
+    ...((init.headers as Record<string, string>) || {}),
   };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (withAuth && accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
+    return await fetch(path.startsWith('http') ? path : API_BASE_URL + path, {
+      ...init,
       headers,
+      credentials: 'include', // cần để trình duyệt nhận/gửi cookie refresh (HttpOnly)
+      signal: controller.signal,
     });
-    return response;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
+/** Làm mới access token bằng cookie refresh. Gộp các lời gọi đồng thời thành một (single-flight). */
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await rawFetch('/auth/refresh', { method: 'POST' }, DEFAULT_TIMEOUT_MS, false);
+        if (!res.ok) {
+          clearSession();
+          return false;
+        }
+        const json: ApiResponse<AuthResponse> = await res.json();
+        setSession(json.data);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
+}
+
+async function toResult<T>(res: Response): Promise<ApiResult<T>> {
+  let json: Partial<ApiResponse<unknown>> | null = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+  if (res.ok && json?.success !== false) {
+    return { success: true, data: json?.data as T, status: res.status, message: json?.message };
+  }
+  const fieldErrors = json && json.data && typeof json.data === 'object' && !Array.isArray(json.data)
+    ? (json.data as Record<string, string>)
+    : undefined;
+  let message = json?.message;
+  if (!message) {
+    message = res.status === 429 ? 'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút' : `Lỗi máy chủ (${res.status})`;
+  }
+  if (fieldErrors && Object.keys(fieldErrors).length > 0) {
+    message = `${message}: ${Object.values(fieldErrors)[0]}`;
+  }
+  return { success: false, status: res.status, message, fieldErrors };
+}
+
+/**
+ * Gọi API có kèm access token (nếu có). Hết hạn → tự làm mới rồi thử lại đúng 1 lần.
+ * requireAuth=true: chưa đăng nhập thì trả lỗi 401 ngay, không gọi mạng.
+ */
+async function request<T>(path: string, init: RequestInit = {}, options: { requireAuth?: boolean; timeoutMs?: number } = {}): Promise<ApiResult<T>> {
+  try {
+    if (accessToken && Date.now() >= accessTokenExpiresAt) {
+      await refreshAccessToken();
+    }
+    if (options.requireAuth && !accessToken) {
+      return { success: false, status: 401, message: 'Vui lòng đăng nhập để tiếp tục' };
+    }
+    let res = await rawFetch(path, init, options.timeoutMs);
+    if (res.status === 401 && accessToken) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) res = await rawFetch(path, init, options.timeoutMs);
+    }
+    return await toResult<T>(res);
+  } catch (err) {
+    const aborted = err instanceof DOMException && err.name === 'AbortError';
+    return {
+      success: false,
+      message: aborted ? 'Máy chủ phản hồi quá chậm, vui lòng thử lại' : 'Không thể kết nối tới máy chủ (API Gateway)',
+    };
+  }
+}
+
+const json = (body: unknown): RequestInit['body'] => JSON.stringify(body);
+
+// ------------------------------------------------------------------ Public API
+
 export const api = {
-  /**
-   * Health check to detect whether the Spring Cloud Gateway & Backend are online
-   */
+  /** Đăng ký nghe thay đổi phiên (đăng nhập / đăng xuất / hết phiên). Trả về hàm hủy. */
+  onSessionChange(cb: (user: UserProfile | null) => void): () => void {
+    listeners.add(cb);
+    return () => listeners.delete(cb);
+  },
+
+  getCurrentUser(): UserProfile | null {
+    return currentUser;
+  },
+
+  /** Khôi phục phiên khi tải trang (dùng cookie refresh HttpOnly). */
+  async restoreSession(): Promise<UserProfile | null> {
+    let hasHint = false;
+    safeStorage((s) => {
+      hasHint = s.getItem(SESSION_HINT_KEY) === '1';
+    });
+    if (!hasHint) return null;
+    const ok = await refreshAccessToken();
+    return ok ? currentUser : null;
+  },
+
   async checkHealth(): Promise<boolean> {
     try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/categories`, { method: 'GET' }, 2500);
+      const res = await rawFetch('/categories', { method: 'GET' }, 2500, false);
       return res.ok;
     } catch {
       return false;
     }
   },
 
-  /**
-   * Đăng nhập qua Identity Service (Cổng 8080 -> 8081)
-   */
-  async login(payload: LoginPayload): Promise<{ success: boolean; data?: AuthResponse; message?: string }> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      const json: ApiResponse<AuthResponse> = await res.json();
-      if (res.ok && json.success) {
-        authStorage.setAuth(json.data);
-        return { success: true, data: json.data };
-      }
-      return { success: false, message: json.message || 'Đăng nhập không thành công' };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Không thể kết nối tới Backend Identity Service' };
-    }
+  async login(payload: LoginPayload): Promise<ApiResult<AuthResponse>> {
+    const result = await request<AuthResponse>('/auth/login', { method: 'POST', body: json(payload) });
+    if (result.success && result.data) setSession(result.data);
+    return result;
   },
 
-  /**
-   * Đăng ký tài khoản qua Identity Service
-   */
-  async register(payload: RegisterPayload): Promise<{ success: boolean; data?: AuthResponse; message?: string }> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      const json: ApiResponse<AuthResponse> = await res.json();
-      if (res.ok && json.success) {
-        authStorage.setAuth(json.data);
-        return { success: true, data: json.data };
-      }
-      return { success: false, message: json.message || 'Đăng ký không thành công' };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Không thể kết nối tới Backend Identity Service' };
-    }
+  async register(payload: RegisterPayload): Promise<ApiResult<AuthResponse>> {
+    const result = await request<AuthResponse>('/auth/register', { method: 'POST', body: json(payload) });
+    if (result.success && result.data) setSession(result.data);
+    return result;
   },
 
-  /**
-   * Lấy thông tin tài khoản hiện tại từ token JWT
-   */
-  async getProfile(): Promise<UserProfile | null> {
+  async logout(): Promise<void> {
     try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/auth/me`);
-      if (!res.ok) return null;
-      const json: ApiResponse<UserProfile> = await res.json();
-      return json.success ? json.data : null;
+      await rawFetch('/auth/logout', { method: 'POST' }, 4000, false);
     } catch {
-      return null;
+      /* vẫn xóa phiên phía client dù server không phản hồi */
     }
+    clearSession();
   },
 
-  /**
-   * Đăng xuất
-   */
-  logout(): void {
-    authStorage.clear();
+  getProfile(): Promise<ApiResult<UserProfile>> {
+    return request<UserProfile>('/auth/me', {}, { requireAuth: true });
   },
 
-  /**
-   * Get all active categories from Catalog Service
-   */
   async getCategories(): Promise<BackendCategory[] | null> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/categories`);
-      if (!res.ok) return null;
-      const json: ApiResponse<BackendCategory[]> = await res.json();
-      return json.success ? json.data : null;
-    } catch (err) {
-      console.warn('[API] getCategories failed, using fallback:', err);
-      return null;
-    }
+    const result = await request<BackendCategory[]>('/categories');
+    return result.success && result.data ? result.data : null;
   },
 
-  /**
-   * Get products with pagination and category filter
-   */
   async getProducts(params?: { categoryId?: number; page?: number; size?: number }): Promise<BackendProduct[] | null> {
-    try {
-      const query = new URLSearchParams();
-      if (params?.categoryId) query.set('categoryId', String(params.categoryId));
-      if (params?.page !== undefined) query.set('page', String(params.page));
-      query.set('size', String(params?.size || 20));
-
-      const res = await fetchWithTimeout(`${API_BASE_URL}/products?${query.toString()}`);
-      if (!res.ok) return null;
-      const json: ApiResponse<SpringPage<BackendProduct>> = await res.json();
-      return json.success ? json.data.content : null;
-    } catch (err) {
-      console.warn('[API] getProducts failed, using fallback:', err);
-      return null;
-    }
+    const query = new URLSearchParams();
+    if (params?.categoryId) query.set('categoryId', String(params.categoryId));
+    if (params?.page !== undefined) query.set('page', String(params.page));
+    query.set('size', String(params?.size || 20));
+    const result = await request<SpringPage<BackendProduct>>(`/products?${query.toString()}`);
+    return result.success && result.data ? result.data.content : null;
   },
 
-  /**
-   * Get 3D customizable aquarium combos
-   */
   async get3DCombos(): Promise<BackendProduct[] | null> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/products/3d-combos`);
-      if (!res.ok) return null;
-      const json: ApiResponse<BackendProduct[]> = await res.json();
-      return json.success ? json.data : null;
-    } catch (err) {
-      console.warn('[API] get3DCombos failed, using fallback:', err);
-      return null;
-    }
+    const result = await request<BackendProduct[]>('/products/3d-combos');
+    return result.success && result.data ? result.data : null;
   },
 
-  /**
-   * Get exploded 6-layer BOM for 3D simulation
-   */
   async getExplodedBom(productIdOrSku: string): Promise<ExplodedBom | null> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/3d/boms/${productIdOrSku}/exploded-view`);
-      if (!res.ok) return null;
-      const json: ApiResponse<ExplodedBom> = await res.json();
-      return json.success ? json.data : null;
-    } catch (err) {
-      console.warn('[API] getExplodedBom failed, using fallback:', err);
-      return null;
-    }
+    const result = await request<ExplodedBom>(`/3d/boms/${encodeURIComponent(productIdOrSku)}/exploded-view`);
+    return result.success && result.data ? result.data : null;
   },
 
-  /**
-   * Lưu cấu hình thiết kế 3D vào PostgreSQL qua Aquarium 3D Service
-   */
-  async save3DDesign(payload: SaveDesignPayload): Promise<{ success: boolean; data?: UserDesignResponse; message?: string }> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/3d/designs`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      const json: ApiResponse<UserDesignResponse> = await res.json();
-      if (res.ok && json.success) {
-        return { success: true, data: json.data };
-      }
-      return { success: false, message: json.message || 'Lưu thiết kế không thành công' };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Không thể kết nối tới Aquarium 3D Service' };
-    }
+  async checkCompatibility(speciesIds: number[], tankVolumeLiters: number, quantities: Record<number, number>): Promise<CompatibilityResult | null> {
+    const result = await request<CompatibilityResult>('/3d/biology/check-compatibility', {
+      method: 'POST',
+      body: json({ speciesIds, tankVolumeLiters, quantities }),
+    });
+    return result.success && result.data ? result.data : null;
   },
 
-  /**
-   * Lấy cấu hình thiết kế 3D theo mã chia sẻ (shareSlug) từ Database
-   */
+  save3DDesign(payload: SaveDesignPayload): Promise<ApiResult<UserDesignResponse>> {
+    return request<UserDesignResponse>('/3d/designs', { method: 'POST', body: json(payload) }, { requireAuth: true });
+  },
+
   async getDesignBySlug(slug: string): Promise<UserDesignResponse | null> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/3d/designs/share/${slug}`);
-      if (!res.ok) return null;
-      const json: ApiResponse<UserDesignResponse> = await res.json();
-      return json.success ? json.data : null;
-    } catch (err) {
-      console.warn('[API] getDesignBySlug failed:', err);
-      return null;
-    }
+    if (!/^design-[a-f0-9]{8,32}$/.test(slug)) return null;
+    const result = await request<UserDesignResponse>(`/3d/designs/share/${slug}`);
+    return result.success && result.data ? result.data : null;
+  },
+
+  checkoutOrder(payload: CheckoutPayload): Promise<ApiResult<OrderResponseData>> {
+    return request<OrderResponseData>('/orders/checkout', { method: 'POST', body: json(payload) }, { requireAuth: true, timeoutMs: 15000 });
+  },
+
+  getOrderById(orderId: string): Promise<ApiResult<OrderResponseData>> {
+    return request<OrderResponseData>(`/orders/${encodeURIComponent(orderId)}`, {}, { requireAuth: true });
+  },
+
+  getOrderByNumber(orderNumber: string): Promise<ApiResult<OrderResponseData>> {
+    return request<OrderResponseData>(`/orders/number/${encodeURIComponent(orderNumber)}`, {}, { requireAuth: true });
+  },
+
+  getMyOrders(): Promise<ApiResult<OrderResponseData[]>> {
+    return request<OrderResponseData[]>('/orders/me', {}, { requireAuth: true });
   },
 
   /**
-   * Thêm sản phẩm hoặc combo 3D vào giỏ hàng lưu DB (Port 8080 -> 8086)
-   */
-  async addToCartDB(payload: AddToCartPayload): Promise<{ success: boolean; data?: any; message?: string }> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/cart/items`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      const json: ApiResponse<any> = await res.json();
-      if (res.ok && json.success) {
-        return { success: true, data: json.data };
-      }
-      return { success: false, message: json.message || 'Không thể thêm vào giỏ hàng DB' };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Lỗi kết nối Order & Cart Service' };
-    }
-  },
-
-  /**
-   * Đặt hàng và tự động bóc tách Master Order & Sub-Orders cho từng Shop (Port 8080 -> 8086)
-   */
-  async checkoutOrder(payload: CheckoutPayload): Promise<{ success: boolean; data?: OrderResponseData; message?: string }> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/orders/checkout`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      const json: ApiResponse<OrderResponseData> = await res.json();
-      if (res.ok && json.success) {
-        return { success: true, data: json.data };
-      }
-      return { success: false, message: json.message || 'Đặt hàng không thành công' };
-    } catch (err: any) {
-      return { success: false, message: err?.message || 'Không thể kết nối tới Order Service' };
-    }
-  },
-
-  /**
-   * Tra cứu đơn hàng theo ID
-   */
-  async getOrderById(orderId: string): Promise<OrderResponseData | null> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/orders/${orderId}`);
-      if (!res.ok) return null;
-      const json: ApiResponse<OrderResponseData> = await res.json();
-      return json.success ? json.data : null;
-    } catch {
-      return null;
-    }
-  },
-
-  /**
-   * Tra cứu đơn hàng theo Mã Đơn (VD: ORD-20260918-XXXX)
-   */
-  async getOrderByNumber(orderNumber: string): Promise<OrderResponseData | null> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/orders/number/${orderNumber}`);
-      if (!res.ok) return null;
-      const json: ApiResponse<OrderResponseData> = await res.json();
-      return json.success ? json.data : null;
-    } catch {
-      return null;
-    }
-  },
-
-  /**
-   * Lấy lịch sử đơn hàng của một người dùng
-   */
-  async getOrdersByUser(userId: string): Promise<OrderResponseData[]> {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/orders/user/${userId}`);
-      if (!res.ok) return [];
-      const json: ApiResponse<OrderResponseData[]> = await res.json();
-      return json.success ? json.data : [];
-    } catch {
-      return [];
-    }
-  },
-
-  /**
-   * Đo kiểm độ trễ và trạng thái sống của toàn bộ 6 Microservices Backend qua Gateway
+   * Đo độ trễ & trạng thái từng microservice qua Gateway.
+   * 401/403 vẫn tính là "online" (service đang chạy, chỉ là endpoint cần đăng nhập).
    */
   async checkServicesTelemetry(): Promise<{
-    services: {
-      name: string;
-      serviceId: string;
-      port: number;
-      targetEndpoint: string;
-      online: boolean;
-      latencyMs: number;
-    }[];
+    services: { name: string; serviceId: string; port: number; targetEndpoint: string; online: boolean; latencyMs: number }[];
     overallOnline: boolean;
   }> {
     const checks = [
-      {
-        name: 'API Gateway',
-        serviceId: 'gateway-service',
-        port: 8080,
-        targetEndpoint: `${API_BASE_URL}/categories`,
-      },
-      {
-        name: 'Identity Service (Auth/JWT)',
-        serviceId: 'identity-service',
-        port: 8081,
-        targetEndpoint: `${API_BASE_URL}/auth/me`,
-      },
-      {
-        name: 'Catalog Service (Sản Phẩm)',
-        serviceId: 'catalog-service',
-        port: 8083,
-        targetEndpoint: `${API_BASE_URL}/categories`,
-      },
-      {
-        name: 'Aquarium 3D Service (BOM & Thiết Kế)',
-        serviceId: 'aquarium-3d-service',
-        port: 8084,
-        targetEndpoint: `${API_BASE_URL}/3d/boms/COMBO-NANO-30/exploded-view`,
-      },
-      {
-        name: 'Inventory Service (Kho & Trại Cá)',
-        serviceId: 'inventory-service',
-        port: 8085,
-        targetEndpoint: `${API_BASE_URL}/inventory/alerts/low-stock`,
-      },
-      {
-        name: 'Order Service (Đơn Hàng & Giỏ DB)',
-        serviceId: 'order-service',
-        port: 8086,
-        targetEndpoint: `${API_BASE_URL}/orders/user/a0000000-0000-0000-0000-000000000005`,
-      },
+      { name: 'API Gateway + Catalog', serviceId: 'gateway-service', port: 8080, targetEndpoint: '/categories' },
+      { name: 'Identity Service (Auth/JWT)', serviceId: 'identity-service', port: 8081, targetEndpoint: '/auth/me' },
+      { name: 'Supplier Service (Gian hàng)', serviceId: 'supplier-service', port: 8082, targetEndpoint: '/suppliers/aquaart-hanoi' },
+      { name: 'Catalog Service (Sản Phẩm)', serviceId: 'catalog-service', port: 8083, targetEndpoint: '/products?size=1' },
+      { name: 'Aquarium 3D Service (BOM & Thiết Kế)', serviceId: 'aquarium-3d-service', port: 8084, targetEndpoint: '/3d/biology/rules' },
+      { name: 'Inventory Service (Kho & Trại Cá)', serviceId: 'inventory-service', port: 8085, targetEndpoint: '/inventory/alerts/low-stock' },
+      { name: 'Order Service (Đơn Hàng & Giỏ)', serviceId: 'order-service', port: 8086, targetEndpoint: '/orders/me' },
     ];
 
-    const results = await Promise.all(
+    const services = await Promise.all(
       checks.map(async (chk) => {
         const start = performance.now();
         try {
-          const res = await fetchWithTimeout(chk.targetEndpoint, { method: 'GET' }, 3000);
+          const res = await rawFetch(chk.targetEndpoint, { method: 'GET' }, 3000);
           const latencyMs = Math.round(performance.now() - start);
-          const isAlive = res.ok || res.status === 401 || res.status === 403 || res.status === 404;
-          return {
-            ...chk,
-            online: isAlive,
-            latencyMs,
-          };
+          const online = res.ok || res.status === 401 || res.status === 403 || res.status === 404;
+          return { ...chk, online, latencyMs };
         } catch {
-          return {
-            ...chk,
-            online: false,
-            latencyMs: 0,
-          };
+          return { ...chk, online: false, latencyMs: 0 };
         }
       })
     );
-
-    const overallOnline = results.some((r) => r.online);
-    return {
-      services: results,
-      overallOnline,
-    };
+    return { services, overallOnline: services.some((s) => s.online) };
   },
 };
-

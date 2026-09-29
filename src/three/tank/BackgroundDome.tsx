@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
+import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { BackgroundTheme } from './AquariumTank';
 
@@ -49,9 +49,17 @@ export function BackgroundDome({ theme }: { theme: BackgroundTheme }) {
     });
   }, [theme]);
 
-  useFrame(({ scene }) => {
+  // Đặt sương mù một lần khi đổi theme (bản cũ tạo đối tượng Fog mới ở mọi frame)
+  const scene = useThree((state) => state.scene);
+  useEffect(() => {
     scene.fog = new THREE.FogExp2(PALETTE[theme].fog, 0.08);
-  });
+    return () => {
+      scene.fog = null;
+    };
+  }, [scene, theme]);
+
+  // Giải phóng shader cũ khi đổi theme / unmount
+  useEffect(() => () => mat.dispose(), [mat]);
 
   return (
     <>

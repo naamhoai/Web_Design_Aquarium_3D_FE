@@ -1,11 +1,12 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import {
   ShoppingCart, RefreshCw, Compass, Info, Ruler, Droplets, Fish as FishIcon,
   Camera, Square, Hexagon, Circle, Sun, Moon, Sparkles, TreePine, Mountain, Layers, ArrowLeft,
-  CloudUpload, CheckCircle2, Copy, X,
+  CloudUpload, CheckCircle2, Copy, X, AlertTriangle,
 } from 'lucide-react';
-import { api, authStorage } from '../services/api';
-import type { SaveDesignPayload } from '../services/api';
+import { api } from '../services/api';
+import type { SaveDesignPayload, UserDesignResponse, CompatibilityResult } from '../services/api';
+import type { AddToCartInput, CartLine } from '../cart';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { Segmented } from './Segmented';
@@ -17,7 +18,6 @@ import {
 } from '../three/ConfiguratorScene';
 import type { TankShape, StandStyle, BackgroundTheme } from '../three/tank/AquariumTank';
 import type { LightingPreset } from '../three/tank/LightingRig';
-import type { FishSpecies } from '../three/ProceduralFish';
 
 type Panel = 'shape' | 'background' | 'lighting';
 type PresetId = 'iwagumi' | 'biotope' | 'dutch' | 'custom';
@@ -40,48 +40,85 @@ const BG_LABEL: Record<BackgroundTheme, string> = {
   'ancient-ruins': 'Cổ Trấn Đổ Nát',
 };
 
-const PRICES = {
-  shapes: { rectangle: 1500000, hexagon: 2200000, bowl: 950000 },
-  stands: { wood: 800000, metal: 1200000, none: 0 },
-  backgrounds: { 'deep-blue': 150000, 'amazon-forest': 250000, 'ancient-ruins': 350000 },
+/**
+ * Mỗi lựa chọn trong Studio tương ứng một SKU thật trong DB (xem database/03_security_and_configurator.sql).
+ * Giá dưới đây chỉ là giá dự phòng khi chưa tải được bảng giá từ server — khi đặt hàng, server luôn tính lại.
+ */
+const SHAPE_SKU: Record<TankShape, string> = {
+  rectangle: 'CFG-TANK-RECT-90',
+  hexagon: 'CFG-TANK-HEX-70',
+  bowl: 'CFG-TANK-BOWL-40',
+};
+const STAND_SKU: Record<StandStyle, string | null> = {
+  wood: 'CFG-STAND-WOOD',
+  metal: 'CFG-STAND-METAL',
+  none: null,
+};
+const BG_SKU: Record<BackgroundTheme, string> = {
+  'deep-blue': 'CFG-BG-DEEP-BLUE',
+  'amazon-forest': 'CFG-BG-AMAZON',
+  'ancient-ruins': 'CFG-BG-RUINS',
+};
+const FALLBACK_PRICES: Record<string, number> = {
+  'CFG-TANK-RECT-90': 1500000,
+  'CFG-TANK-HEX-70': 2200000,
+  'CFG-TANK-BOWL-40': 950000,
+  'CFG-STAND-WOOD': 800000,
+  'CFG-STAND-METAL': 1200000,
+  'CFG-BG-DEEP-BLUE': 150000,
+  'CFG-BG-AMAZON': 250000,
+  'CFG-BG-RUINS': 350000,
+  'CFG-FISH-DISCUS': 250000,
+  'CFG-FISH-ANGEL': 90000,
+  'CFG-FISH-NEON': 15000,
+  'CFG-FISH-CLOWN': 80000,
+  'CFG-DECOR-DRIFTWOOD': 180000,
+  'CFG-DECOR-STONE': 120000,
+  'CFG-DECOR-PLANT': 45000,
 };
 
-const SPECIES_BY_CANVAS_UNUSED: Record<string, FishSpecies> = {
-  goldfish: 'goldfish',
-  angelfish: 'angelfish',
-  tetra: 'neon-tetra',
-  clown: 'goldfish',
-};
-void SPECIES_BY_CANVAS_UNUSED;const CATALOG: SceneItem[] = [
+type PriceOf = (sku: string | null | undefined) => number;
+
+/** Mã loài trong bảng biological_rules để kiểm tra tương thích sinh học. */
+const SPECIES_ID: Record<string, number> = { 'f-neon': 1, 'f-angel': 3, 'f-discus': 4, 'f-clown': 5 };
+const TANK_VOLUME_LITERS: Record<TankShape, number> = { rectangle: 180, hexagon: 120, bowl: 30 };
+const LIGHTING_PRESETS: LightingPreset[] = ['warm', 'cool', 'cinematic'];
+
+const CATALOG: SceneItem[] = [
   {
-    id: 'f-discus', name: 'Cá Đĩa Discus', type: 'fish', price: 250000, color: '#ec4899',
+    id: 'f-discus', sku: 'CFG-FISH-DISCUS', name: 'Cá Đĩa Discus', type: 'fish', price: 250000, color: '#ec4899',
     canvasType: 'goldfish', species: 'goldfish', swimRadius: 0.5,
   },
   {
-    id: 'f-angel', name: 'Cá Thần Tiên', type: 'fish', price: 90000, color: '#e2e8f0',
+    id: 'f-angel', sku: 'CFG-FISH-ANGEL', name: 'Cá Thần Tiên', type: 'fish', price: 90000, color: '#e2e8f0',
     canvasType: 'angelfish', species: 'angelfish', swimRadius: 0.55,
   },
   {
-    id: 'f-neon', name: 'Cá Neon Xanh', type: 'fish', price: 15000, color: '#ff2a2a',
+    id: 'f-neon', sku: 'CFG-FISH-NEON', name: 'Cá Neon Xanh', type: 'fish', price: 15000, color: '#ff2a2a',
     canvasType: 'tetra', species: 'neon-tetra', swimRadius: 0.6,
   },
   {
-    id: 'f-clown', name: 'Cá Hề Nemo', type: 'fish', price: 80000, color: '#ff6b00',
+    id: 'f-clown', sku: 'CFG-FISH-CLOWN', name: 'Cá Hề Nemo', type: 'fish', price: 80000, color: '#ff6b00',
     canvasType: 'clown', species: 'goldfish', swimRadius: 0.45,
   },
   {
-    id: 'd-drift', name: 'Lũa Thủy Sinh Tự Nhiên', type: 'decor', price: 180000,
+    id: 'd-drift', sku: 'CFG-DECOR-DRIFTWOOD', name: 'Lũa Thủy Sinh Tự Nhiên', type: 'decor', price: 180000,
     canvasType: 'driftwood', decorGeometry: 'driftwood',
   },
   {
-    id: 'd-stone', name: 'Đá Cảnh Rêu Phong', type: 'decor', price: 120000,
+    id: 'd-stone', sku: 'CFG-DECOR-STONE', name: 'Đá Cảnh Rêu Phong', type: 'decor', price: 120000,
     canvasType: 'stone', decorGeometry: 'stone',
   },
   {
-    id: 'd-plant', name: 'Khóm Cây Ráy Lùn', type: 'decor', price: 45000,
+    id: 'd-plant', sku: 'CFG-DECOR-PLANT', name: 'Khóm Cây Ráy Lùn', type: 'decor', price: 45000,
     canvasType: 'plant', plantHue: 'green' as const,
   },
 ];
+
+/** Tạo bản sao vật phẩm từ catalog với id duy nhất (giữ catalogId để tra giá / khôi phục bản vẽ). */
+function instantiate(item: SceneItem, index: number): SceneItem {
+  return { ...item, catalogId: item.catalogId ?? item.id, id: `${item.catalogId ?? item.id}-${Date.now()}-${index}` };
+}
 
 const PRESETS: Record<
   Exclude<PresetId, 'custom'>,
@@ -148,15 +185,18 @@ const CAMERA_PRESETS: { id: CameraPreset; label: string; icon: React.ReactNode }
 ];
 
 interface AquariumCustomizerProps {
-  onAddToCart: (item: any) => void;
+  onAddToCart: (item: AddToCartInput) => void;
   onBackToStore?: () => void;
-  initialDesign?: any;
+  initialDesign?: UserDesignResponse | null;
+  /** Mở hộp thoại đăng nhập (lưu bản vẽ cần tài khoản). */
+  onRequireLogin?: () => void;
 }
 
 export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
   onAddToCart,
   onBackToStore,
   initialDesign,
+  onRequireLogin,
 }) => {
   const [tankShape, setTankShape] = useState<TankShape>('rectangle');
   const [standStyle, setStandStyle] = useState<StandStyle>('wood');
@@ -169,6 +209,32 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('iso');
   const [autoRotate, setAutoRotate] = useState(false);
 
+  // Bảng giá linh kiện Studio lấy từ DB (fallback: FALLBACK_PRICES)
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [compatibility, setCompatibility] = useState<CompatibilityResult | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const categories = await api.getCategories();
+      const studio = categories?.find((c) => c.slug === 'linh-kien-studio-3d');
+      if (!studio) return;
+      const products = await api.getProducts({ categoryId: studio.id, size: 50 });
+      if (!mounted || !products) return;
+      const map: Record<string, number> = {};
+      products.forEach((p) => {
+        const sku = p.defaultVariantSku ?? p.sku;
+        map[sku] = Number(p.price ?? p.basePrice);
+      });
+      setLivePrices(map);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const priceOf: PriceOf = (sku) => (sku ? livePrices[sku] ?? FALLBACK_PRICES[sku] ?? 0 : 0);
+
   // Cloud Save & Share State (Aquarium 3D Service :8084)
   const [isSavingCloud, setIsSavingCloud] = useState(false);
   const [savedDesignData, setSavedDesignData] = useState<{
@@ -180,9 +246,11 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
     viewCount?: number;
   } | null>(null);
 
-  // Rehydrate initial design if loaded from share URL (?design=slug)
+  // Rehydrate initial design if loaded from share URL (?design=slug) — chỉ một lần cho mỗi bản vẽ
+  const restoredDesignId = useRef<string | null>(null);
   useEffect(() => {
-    if (initialDesign) {
+    if (initialDesign && restoredDesignId.current !== initialDesign.id) {
+      restoredDesignId.current = initialDesign.id;
       try {
         if (initialDesign.tankDimensions) {
           const dims = typeof initialDesign.tankDimensions === 'string'
@@ -196,13 +264,17 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
             ? JSON.parse(initialDesign.sceneData)
             : initialDesign.sceneData;
           if (sc.backgroundTheme && BG_LABEL[sc.backgroundTheme as BackgroundTheme]) setBackgroundTheme(sc.backgroundTheme);
-          if (sc.lightingPreset) setLightingPreset(sc.lightingPreset);
-          if (sc.lightingIntensity) setLightingIntensity(sc.lightingIntensity);
-          if (sc.items && Array.isArray(sc.items)) {
-            const rehydrated = sc.items.map((it: any, i: number) => {
-              const catMatch = CATALOG.find((c) => c.name === it.name || c.id === it.id);
-              return catMatch ? { ...catMatch, id: `${catMatch.id}-${Date.now()}-${i}` } : it;
-            });
+          if (LIGHTING_PRESETS.includes(sc.lightingPreset)) setLightingPreset(sc.lightingPreset);
+          if (typeof sc.lightingIntensity === 'number') setLightingIntensity(Math.min(2, Math.max(0.5, sc.lightingIntensity)));
+          if (Array.isArray(sc.items)) {
+            // Chỉ khôi phục vật phẩm có trong catalog (bỏ qua dữ liệu lạ trong link chia sẻ)
+            const rehydrated = (sc.items as { catalogId?: string; id?: string }[])
+              .slice(0, 12)
+              .map((it, i) => {
+                const catMatch = CATALOG.find((c) => c.id === it.catalogId || (it.id ?? '').startsWith(c.id + '-'));
+                return catMatch ? instantiate(catMatch, i) : null;
+              })
+              .filter((it): it is SceneItem => it !== null);
             setAddedItems(rehydrated);
           }
         }
@@ -222,10 +294,46 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
   }, [reducedMotion]);
 
   const totalPrice =
-    PRICES.shapes[tankShape] +
-    PRICES.stands[standStyle] +
-    PRICES.backgrounds[backgroundTheme] +
-    addedItems.reduce((acc, it) => acc + it.price, 0);
+    priceOf(SHAPE_SKU[tankShape]) +
+    priceOf(STAND_SKU[standStyle]) +
+    priceOf(BG_SKU[backgroundTheme]) +
+    addedItems.reduce((acc, it) => acc + priceOf(it.sku), 0);
+
+  /** Danh sách SKU + số lượng của cấu hình hiện tại (dùng cho giỏ hàng và lưu bản vẽ). */
+  const buildComponents = (): CartLine[] => {
+    const quantities = new Map<string, number>();
+    const add = (sku: string | null | undefined) => {
+      if (sku) quantities.set(sku, (quantities.get(sku) ?? 0) + 1);
+    };
+    add(SHAPE_SKU[tankShape]);
+    add(STAND_SKU[standStyle]);
+    add(BG_SKU[backgroundTheme]);
+    addedItems.forEach((it) => add(it.sku));
+    return Array.from(quantities, ([sku, quantity]) => ({ sku, quantity }));
+  };
+
+  // Kiểm tra tương thích sinh học (Biology Engine của aquarium-3d-service), debounce 450ms
+  useEffect(() => {
+    const quantities: Record<number, number> = {};
+    addedItems.forEach((it) => {
+      const speciesId = SPECIES_ID[it.catalogId ?? ''];
+      if (speciesId) quantities[speciesId] = (quantities[speciesId] ?? 0) + 1;
+    });
+    const speciesIds = Object.keys(quantities).map(Number);
+    if (speciesIds.length === 0) {
+      setCompatibility(null);
+      return;
+    }
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      const result = await api.checkCompatibility(speciesIds, TANK_VOLUME_LITERS[tankShape], quantities);
+      if (!cancelled) setCompatibility(result);
+    }, 450);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [addedItems, tankShape]);
 
   const ecosystemStats = useMemo(() => {
     const fish = addedItems.filter((it) => it.type === 'fish').length;
@@ -244,7 +352,7 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
       p.config.itemIds
         .map((cid) => CATALOG.find((c) => c.id === cid))
         .filter((c): c is SceneItem => Boolean(c))
-        .map((c, i) => ({ ...c, id: `${c.id}-${Date.now()}-${i}` }))
+        .map((c, i) => instantiate(c, i))
     );
     setActivePreset(id);
     setActivePanel('shape');
@@ -257,7 +365,7 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
       return;
     }
     setAddedItems((prev) => {
-      const next = [...prev, { ...item, id: `${item.id}-${Date.now()}-${prev.length}` }];
+      const next = [...prev, instantiate(item, prev.length)];
       markCustom();
       return next;
     });
@@ -286,29 +394,25 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
   };
 
   const handleSaveToCart = () => {
-    const customConfig = {
+    onAddToCart({
       id: `custom-tank-${Date.now()}`,
       name: `Bể Cá 3D — ${SHAPE_LABEL[tankShape]} (${PRESETS[activePreset as keyof typeof PRESETS]?.label ?? 'Custom'})`,
       price: totalPrice,
-      image: '/assets/custom_tank_placeholder.png',
       isCustom: true,
       description: `Bể: ${SHAPE_LABEL[tankShape]} · Kệ: ${STAND_LABEL[standStyle]} · Phông nền: ${BG_LABEL[backgroundTheme]} · Ánh sáng: ${lightingPreset}. Gồm ${ecosystemStats.fish} sinh vật & ${ecosystemStats.decor} vật trang trí.`,
-      details: {
-        presetId: activePreset,
-        tankShape, standStyle, backgroundTheme,
-        lightingPreset, lightingIntensity,
-        addedItems,
-        ecosystem: ecosystemStats,
-      },
-    };
-    onAddToCart(customConfig);
-    toast({ kind: 'success', message: '🎉 Đã lưu thiết kế bể cá 3D vào giỏ hàng!' });
+      lines: buildComponents(),
+    });
+    toast({ kind: 'success', message: '🎉 Đã thêm thiết kế bể cá 3D vào giỏ hàng!' });
   };
 
   const handleSaveToCloud = async () => {
+    if (!api.getCurrentUser()) {
+      toast({ kind: 'warning', message: 'Vui lòng đăng nhập để lưu và chia sẻ bản vẽ 3D.' });
+      onRequireLogin?.();
+      return;
+    }
     setIsSavingCloud(true);
     try {
-      const user = authStorage.getUser();
       const dims = {
         shape: tankShape,
         stand: standStyle,
@@ -319,31 +423,20 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
         lightingPreset,
         lightingIntensity,
         items: addedItems.map((it) => ({
-          id: it.id,
+          catalogId: it.catalogId,
           name: it.name,
           type: it.type,
-          price: it.price,
           canvasType: it.canvasType,
         })),
         activePreset,
       };
-      const bom = {
-        itemsCount: addedItems.length,
-        tankPrice: PRICES.shapes[tankShape],
-        standPrice: PRICES.stands[standStyle],
-        backgroundPrice: PRICES.backgrounds[backgroundTheme],
-        itemsPrice: addedItems.reduce((acc, it) => acc + it.price, 0),
-      };
 
-      // Valid fallback user ID (Customer Nguyễn Phương Nam) if not logged in
-      const guestFallbackId = 'a0000000-0000-0000-0000-000000000005';
+      // Chủ sở hữu lấy từ phiên đăng nhập, tổng giá do server tính từ danh sách SKU
       const payload: SaveDesignPayload = {
-        userId: user?.id || guestFallbackId,
         name: `Bể Cá 3D — ${SHAPE_LABEL[tankShape]} (${PRESETS[activePreset as keyof typeof PRESETS]?.label ?? 'Tự thiết kế'})`,
         tankDimensions: JSON.stringify(dims),
         sceneData: JSON.stringify(scene),
-        bomSnapshot: JSON.stringify(bom),
-        totalPrice,
+        components: buildComponents(),
       };
 
       const res = await api.save3DDesign(payload);
@@ -361,9 +454,8 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
         toast({ kind: 'success', message: '🎉 Đã lưu bản vẽ 3D lên PostgreSQL thành công!' });
       } else {
         toast({ kind: 'danger', message: res.message || 'Không thể lưu bản vẽ lên Cloud' });
+        if (res.status === 401) onRequireLogin?.();
       }
-    } catch (err: any) {
-      toast({ kind: 'danger', message: err?.message || 'Lỗi kết nối tới Aquarium 3D Service' });
     } finally {
       setIsSavingCloud(false);
     }
@@ -394,13 +486,13 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
                 padding: '10px 18px',
                 fontSize: '13px',
                 borderRadius: '30px',
-                background: '#ffffff',
-                border: '1.5px solid #cbd5e1',
+                background: 'rgba(15, 23, 42, 0.8)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
                 cursor: 'pointer',
                 fontWeight: 600,
-                color: '#334155',
+                color: '#e2e8f0',
                 display: 'inline-flex',
-                boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+                boxShadow: 'none',
               }}
             >
               <ArrowLeft size={16} />
@@ -482,6 +574,7 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
                   items={addedItems}
                   onAdd={handleAddItem}
                   onRemove={handleRemoveItem}
+                  priceOf={priceOf}
                 />
               </div>
             </aside>
@@ -505,6 +598,7 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
               <div className="studio-dock-body">
                 {activePanel === 'shape' && (
                   <ShapePanel
+                    priceOf={priceOf}
                     shape={tankShape}
                     stand={standStyle}
                     onShape={(s) => { setTankShape(s); markCustom(); }}
@@ -513,6 +607,7 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
                 )}
                 {activePanel === 'background' && (
                   <BackgroundPanel
+                    priceOf={priceOf}
                     theme={backgroundTheme}
                     onTheme={(t) => { setBackgroundTheme(t); markCustom(); }}
                   />
@@ -528,7 +623,26 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
               </div>
 
               <div className="studio-dock-foot">
+                {compatibility && (
+                  <div
+                    className={`bio-card ${compatibility.isCompatible ? 'is-ok' : 'is-warn'}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div className="bio-card-head">
+                      {compatibility.isCompatible ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                      <span>{compatibility.isCompatible ? 'Hệ sinh thái tương thích' : 'Cảnh báo sinh học'}</span>
+                    </div>
+                    {compatibility.warnings.slice(0, 3).map((w, i) => (
+                      <p key={i} className="bio-card-line">{w}</p>
+                    ))}
+                    <p className="bio-card-meta">
+                      pH {compatibility.recommendedPhRange} · {compatibility.recommendedTempRange} · tải sinh học {compatibility.totalBioLoad}/{compatibility.maxBioLoadCapacity}
+                    </p>
+                  </div>
+                )}
                 <PriceBreakdown
+                  priceOf={priceOf}
                   shape={tankShape}
                   stand={standStyle}
                   background={backgroundTheme}
@@ -762,13 +876,14 @@ export const AquariumCustomizer: React.FC<AquariumCustomizerProps> = ({
 };
 
 interface ShapePanelProps {
+  priceOf: PriceOf;
   shape: TankShape;
   stand: StandStyle;
   onShape: (s: TankShape) => void;
   onStand: (s: StandStyle) => void;
 }
 
-function ShapePanel({ shape, stand, onShape, onStand }: ShapePanelProps) {
+function ShapePanel({ priceOf, shape, stand, onShape, onStand }: ShapePanelProps) {
   const shapeCards: { id: TankShape; icon: React.ReactNode; meta: string }[] = [
     { id: 'rectangle', icon: <Square size={22} />, meta: '90×45×45 cm · 180 L' },
     { id: 'hexagon', icon: <Hexagon size={22} />, meta: '70×70×60 cm · 120 L' },
@@ -794,7 +909,7 @@ function ShapePanel({ shape, stand, onShape, onStand }: ShapePanelProps) {
               </span>
               <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{s.meta}</span>
               <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 700 }}>
-                {PRICES.shapes[s.id].toLocaleString('vi-VN')}₫
+                {priceOf(SHAPE_SKU[s.id]).toLocaleString('vi-VN')}₫
               </span>
             </span>
           </button>
@@ -819,7 +934,7 @@ function ShapePanel({ shape, stand, onShape, onStand }: ShapePanelProps) {
               <span style={{ color: '#fff', fontWeight: 600 }}>{STAND_LABEL[s]}</span>
             </span>
             <span style={{ color: 'var(--color-primary)', fontSize: 13 }}>
-              {s === 'none' ? 'Miễn phí' : `+${PRICES.stands[s].toLocaleString('vi-VN')}₫`}
+              {s === 'none' ? 'Miễn phí' : `+${priceOf(STAND_SKU[s]).toLocaleString('vi-VN')}₫`}
             </span>
           </button>
         ))}
@@ -829,10 +944,11 @@ function ShapePanel({ shape, stand, onShape, onStand }: ShapePanelProps) {
 }
 
 interface BackgroundPanelProps {
+  priceOf: PriceOf;
   theme: BackgroundTheme;
   onTheme: (t: BackgroundTheme) => void;
 }
-function BackgroundPanel({ theme, onTheme }: BackgroundPanelProps) {
+function BackgroundPanel({ priceOf, theme, onTheme }: BackgroundPanelProps) {
   const themes: { id: BackgroundTheme; gradient: string; desc: string }[] = [
     {
       id: 'deep-blue',
@@ -873,7 +989,7 @@ function BackgroundPanel({ theme, onTheme }: BackgroundPanelProps) {
               </span>
             </span>
             <span style={{ color: 'var(--color-primary)', fontSize: 13, fontWeight: 700 }}>
-              +{PRICES.backgrounds[t.id].toLocaleString('vi-VN')}₫
+              +{priceOf(BG_SKU[t.id]).toLocaleString('vi-VN')}₫
             </span>
           </button>
         ))}
@@ -886,12 +1002,13 @@ interface ItemsPanelProps {
   items: SceneItem[];
   onAdd: (item: SceneItem) => void;
   onRemove: (id: string) => void;
+  priceOf: PriceOf;
 }
-function ItemsPanel({ items, onAdd, onRemove }: ItemsPanelProps) {
+function ItemsPanel({ items, onAdd, onRemove, priceOf }: ItemsPanelProps) {
   const [tab, setTab] = useState<'fish' | 'decor'>('fish');
   const fishCatalog = CATALOG.filter((c) => c.type === 'fish');
   const decorCatalog = CATALOG.filter((c) => c.type === 'decor');
-  const totalItemsPrice = items.reduce((acc, it) => acc + it.price, 0);
+  const totalItemsPrice = items.reduce((acc, it) => acc + priceOf(it.sku), 0);
 
   return (
     <div className="flex flex-col gap-3">
@@ -933,7 +1050,7 @@ function ItemsPanel({ items, onAdd, onRemove }: ItemsPanelProps) {
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
               <span style={{ color: '#fff', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>{c.name}</span>
               <span style={{ color: 'var(--color-primary)', fontSize: 11, fontWeight: 700 }}>
-                {c.price.toLocaleString('vi-VN')}₫
+                {priceOf(c.sku).toLocaleString('vi-VN')}₫
               </span>
             </span>
           </button>
@@ -1051,20 +1168,22 @@ function LightingPanel({ preset, intensity, onPreset, onIntensity }: LightingPan
 }
 
 function PriceBreakdown({
+  priceOf,
   shape,
   stand,
   background,
   items,
   total,
 }: {
+  priceOf: PriceOf;
   shape: TankShape;
   stand: StandStyle;
   background: BackgroundTheme;
   items: SceneItem[];
   total: number;
 }) {
-  const itemsTotal = items.reduce((acc, it) => acc + it.price, 0);
-  const base = PRICES.shapes[shape] + PRICES.stands[stand] + PRICES.backgrounds[background];
+  const itemsTotal = items.reduce((acc, it) => acc + priceOf(it.sku), 0);
+  const base = priceOf(SHAPE_SKU[shape]) + priceOf(STAND_SKU[stand]) + priceOf(BG_SKU[background]);
   return (
     <div className="price-card">
       <div className="price-row">

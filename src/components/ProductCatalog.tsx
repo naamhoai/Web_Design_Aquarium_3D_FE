@@ -11,10 +11,13 @@ export interface Product {
   image: string;
   category: string;
   rating: number;
-  reviewCount: number;
+  /** Chỉ có với dữ liệu mẫu; sản phẩm thật chưa có hệ thống đánh giá nên không hiển thị số giả. */
+  reviewCount?: number;
   description: string;
   badge?: string;
   badgeColor?: string;
+  /** SKU để đặt hàng. Không có => sản phẩm trưng bày (chế độ Demo), chưa thể đặt. */
+  sku?: string;
 }
 
 interface ProductCatalogProps {
@@ -152,8 +155,10 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ onAddToCart }) =
           if (categories) {
             categories.forEach((c) => categoryMap.set(c.id, c.name));
           }
+          // Linh kiện của Studio 3D không bán lẻ trên trang cửa hàng
+          const studioCategoryIds = new Set((categories ?? []).filter((c) => c.slug === 'linh-kien-studio-3d').map((c) => c.id));
 
-          const mapped: Product[] = apiProducts.map((bp) => {
+          const mapped: Product[] = apiProducts.filter((bp) => !studioCategoryIds.has(bp.categoryId)).map((bp) => {
             const fallbackMatch = PRODUCTS.find((p) =>
               p.name.toLowerCase().includes(bp.name.substring(0, 8).toLowerCase()) ||
               p.id === bp.sku.toLowerCase()
@@ -165,15 +170,18 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ onAddToCart }) =
             else if (rawCat.includes('Đèn') || rawCat.includes('Lọc') || rawCat.includes('Thiết Bị')) catName = 'Thiết Bị';
             else if (rawCat.includes('Lũa') || rawCat.includes('Cây') || rawCat.includes('Phân')) catName = 'Cây & Lũa';
 
+            const price = Number(bp.price ?? bp.basePrice);
+            const originalPrice = bp.originalPrice != null ? Number(bp.originalPrice) : undefined;
             return {
               id: bp.id,
               name: bp.name,
-              price: Number(bp.basePrice),
-              originalPrice: bp.isCombo ? Math.round(Number(bp.basePrice) * 1.15) : undefined,
+              price,
+              // Chỉ hiện giá gạch khi DB thật sự có giá gốc cao hơn (không bịa khuyến mãi)
+              originalPrice: originalPrice && originalPrice > price ? originalPrice : undefined,
               image: bp.thumbnailUrl || fallbackMatch?.image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80',
               category: catName,
               rating: Number(bp.rating) || 5.0,
-              reviewCount: bp.totalSales ? bp.totalSales * 3 + 12 : 68,
+              sku: bp.defaultVariantSku,
               description: bp.shortDescription || fallbackMatch?.description || 'Sản phẩm thủy sinh cao cấp chuẩn Studio.',
               badge: bp.isCombo ? 'Combo 3D' : bp.isLivestock ? 'Cá Cảnh Live' : bp.is3dCustomizable ? '3D Config' : undefined,
               badgeColor: bp.isCombo ? '#06b6d4' : bp.isLivestock ? '#38bdf8' : '#10b981',
@@ -491,7 +499,9 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ onAddToCart }) =
                         />
                       ))}
                     </div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>({product.reviewCount})</span>
+                    {product.reviewCount !== undefined && (
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>({product.reviewCount})</span>
+                    )}
                   </div>
 
                   {/* Price + Add to Cart */}
@@ -557,6 +567,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ onAddToCart }) =
         <div style={{ textAlign: 'center', marginTop: '48px' }}>
           <button
             className="btn-secondary flex align-center gap-1"
+            onClick={() => setActiveCategory('all')}
             style={{
               margin: '0 auto',
               display: 'inline-flex',
@@ -565,7 +576,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ onAddToCart }) =
               color: '#38bdf8',
             }}
           >
-            <span>Xem Toàn Bộ 120+ Sản Phẩm Studio</span>
+            <span>Xem Tất Cả Sản Phẩm ({products.length})</span>
             <ChevronRight size={16} />
           </button>
         </div>

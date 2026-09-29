@@ -32,19 +32,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   useEffect(() => {
     let isMounted = true;
-    api.checkHealth().then((status) => {
-      if (isMounted) setIsLive(status);
-    });
-
-    const interval = setInterval(() => {
+    const refresh = () => {
+      // Tab đang ẩn thì không ping (tiết kiệm hạn mức rate-limit dùng chung theo IP)
+      if (document.hidden) return;
       api.checkHealth().then((status) => {
         if (isMounted) setIsLive(status);
       });
-    }, 10000);
+    };
+
+    refresh();
+    const interval = setInterval(refresh, 30000);
+    document.addEventListener('visibilitychange', refresh);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, []);
 
@@ -117,7 +120,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={onOpenTelemetry}
             role="button"
             tabIndex={0}
-            title="Bấm để xem chi tiết trạng thái 6 Microservices Backend & PostgreSQL"
+            title="Bấm để xem trạng thái các microservice backend"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -145,7 +148,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
             />
             <span className="hide-mobile">
-              {isLive === null ? 'Đang kết nối...' : isLive ? '6 Services Online (8080)' : 'Chế độ Demo'}
+              {isLive === null ? 'Đang kết nối...' : isLive ? 'Backend Online' : 'Chế độ Demo'}
             </span>
           </div>
         </div>
@@ -197,6 +200,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Actions */}
         <div className="flex align-center gap-2" style={{ zIndex: 1002 }}>
           <button
+            type="button"
+            aria-label="Tìm sản phẩm"
+            title="Tìm sản phẩm"
+            onClick={() => handleLinkClick('shop')}
             style={{
               background: 'transparent',
               border: 'none',
@@ -347,10 +354,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Mobile Hamburger */}
           <button
             onClick={() => setIsOpen(!isOpen)}
+            aria-label={isOpen ? 'Đóng menu' : 'Mở menu'}
+            aria-expanded={isOpen}
             style={{
               background: 'transparent',
               border: 'none',
-              color: '#0f172a',
+              color: '#f8fafc',
               cursor: 'pointer',
               display: 'none',
             }}
@@ -370,9 +379,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             left: 0,
             width: '100%',
             height: 'calc(100vh - 72px)',
-            background: 'rgba(248,250,252,0.97)',
+            background: 'rgba(7, 12, 20, 0.97)',
             backdropFilter: 'blur(20px)',
-            borderTop: '1px solid rgba(2,132,199,0.12)',
+            borderTop: '1px solid rgba(56, 189, 248, 0.15)',
             zIndex: 1001,
             padding: '32px 24px',
             display: 'flex',
@@ -387,12 +396,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: '#0f172a',
+                color: '#f8fafc',
                 fontSize: '20px',
                 fontWeight: 700,
                 textAlign: 'left',
                 padding: '12px 0',
-                borderBottom: '1px solid rgba(2,132,199,0.08)',
+                borderBottom: '1px solid rgba(56, 189, 248, 0.12)',
                 cursor: 'pointer',
                 fontFamily: 'var(--font-heading)',
               }}

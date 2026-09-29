@@ -9,6 +9,10 @@ interface AuthModalProps {
   onAuthSuccess: (user: UserProfile) => void;
 }
 
+/** Tài khoản mẫu từ seed DB — chỉ hiển thị khi chạy dev (vite dev server). */
+const DEV_DEMO_ACCOUNT = import.meta.env.DEV ? { email: 'customer_nam@gmail.com', password: 'Dev@123456' } : null;
+const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).{8,72}$/;
+
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -25,6 +29,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+
+    if (mode === 'register' && !PASSWORD_RULE.test(password)) {
+      setErrorMsg('Mật khẩu cần 8-72 ký tự, gồm cả chữ cái và chữ số.');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -32,6 +41,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         const res = await api.login({ email, password });
         if (res.success && res.data) {
           setSuccessMsg(`Chào mừng ${res.data.user.fullName} quay trở lại!`);
+          setPassword('');
           setTimeout(() => {
             onAuthSuccess(res.data!.user);
             onClose();
@@ -43,6 +53,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         const res = await api.register({ email, password, fullName, phone });
         if (res.success && res.data) {
           setSuccessMsg('Đăng ký tài khoản thành công!');
+          setPassword('');
           setTimeout(() => {
             onAuthSuccess(res.data!.user);
             onClose();
@@ -59,8 +70,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
   };
 
   const handleFillDemo = () => {
-    setEmail('demo_user@aquarium.com');
-    setPassword('password123');
+    if (!DEV_DEMO_ACCOUNT) return;
+    setEmail(DEV_DEMO_ACCOUNT.email);
+    setPassword(DEV_DEMO_ACCOUNT.password);
     setErrorMsg(null);
   };
 
@@ -299,6 +311,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               <input
                 type="email"
                 required
+                maxLength={255}
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="customer@example.com"
@@ -325,10 +339,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={mode === 'register' ? 8 : 1}
+                maxLength={72}
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Tối thiểu 6 ký tự"
+                placeholder={mode === 'register' ? 'Tối thiểu 8 ký tự, gồm chữ và số' : 'Mật khẩu'}
                 style={{
                   width: '100%',
                   padding: '10px 14px 10px 38px',
@@ -366,7 +382,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           >
             {loading ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className="spin" />
                 Đang xử lý...
               </>
             ) : (
@@ -377,8 +393,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
             )}
           </button>
 
-          {/* Quick Demo Credentials for Testing */}
-          {mode === 'login' && (
+          {/* Tài khoản mẫu — chỉ hiện ở môi trường dev */}
+          {mode === 'login' && DEV_DEMO_ACCOUNT && (
             <div
               style={{
                 marginTop: '16px',
@@ -392,8 +408,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               }}
             >
               <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                <span style={{ color: '#38bdf8', fontWeight: 600 }}>Tài khoản mẫu: </span>
-                testuser@gmail.com
+                <span style={{ color: '#38bdf8', fontWeight: 600 }}>Tài khoản mẫu (dev): </span>
+                {DEV_DEMO_ACCOUNT.email}
               </div>
               <button
                 type="button"

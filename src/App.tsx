@@ -10,22 +10,15 @@ import { AuthModal } from './components/AuthModal';
 import { TelemetryModal } from './components/TelemetryModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { OrderSuccessModal } from './components/OrderSuccessModal';
-import { api, authStorage } from './services/api';
-import type { UserProfile, OrderResponseData } from './services/api';
+import { ToastStack, toast } from './components/Toast';
+import { api } from './services/api';
+import type { UserProfile, OrderResponseData, UserDesignResponse } from './services/api';
+import { toCartLines, unorderableItems } from './cart';
+import type { AddToCartInput, CartItem } from './cart';
 import {
-  Sparkles, Trash2, X, ShieldCheck, ArrowRight,
+  Sparkles, Trash2, X, ShieldCheck, ArrowRight, AlertTriangle,
   Fish, Layers, Leaf, Wrench, Star, Truck, RotateCcw, Headphones
 } from 'lucide-react';
-
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  image?: string;
-  description: string;
-  quantity: number;
-  isCustom?: boolean;
-}
 
 export default function App() {
   // Intro Splash screen:
@@ -55,18 +48,28 @@ export default function App() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isOrderSuccessOpen, setIsOrderSuccessOpen] = useState(false);
   const [createdOrder, setCreatedOrder] = useState<OrderResponseData | null>(null);
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => authStorage.getUser());
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState(false);
   const [isTelemetryOpen, setIsTelemetryOpen] = useState(false);
-  const [sharedDesign, setSharedDesign] = useState<any>(null);
+  const [sharedDesign, setSharedDesign] = useState<UserDesignResponse | null>(null);
+
+  // Khôi phục phiên đăng nhập bằng cookie HttpOnly (access token chỉ nằm trong bộ nhớ)
+  useEffect(() => {
+    const unsubscribe = api.onSessionChange((user) => setCurrentUser(user));
+    api.restoreSession().then((user) => setCurrentUser(user));
+    return unsubscribe;
+  }, []);
 
   // Check if visitor opened a shared 3D design link: ?design=design-xxxx
   useEffect(() => {
+    let cancelled = false;
     try {
       const params = new URLSearchParams(window.location.search);
       const slug = params.get('design');
       if (slug) {
         api.getDesignBySlug(slug).then((data) => {
+          if (cancelled) return;
           if (data) {
             setSharedDesign(data);
             setPageView('studio');
@@ -78,11 +81,15 @@ export default function App() {
     } catch (e) {
       console.warn('Failed to parse URL query:', e);
     }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const handleLogout = () => {
-    api.logout();
+  const handleLogout = async () => {
+    await api.logout();
     setCurrentUser(null);
+    toast({ kind: 'info', message: 'Đã đăng xuất.' });
   };
 
   const handleNavigate = (target: string) => {
@@ -108,24 +115,50 @@ export default function App() {
     }
   };
 
-  const handleAddToCart = (product: Product | any) => {
+  const handleAddToCart = (product: AddToCartInput | Product) => {
+    const input = product as AddToCartInput;
+    const item: CartItem = {
+      id: input.id,
+      name: input.name,
+      price: input.price,
+      image: input.image,
+      description: input.description,
+      isCustom: input.isCustom,
+      quantity: 1,
+      lines: toCartLines(input),
+    };
     setCart((prev) => {
-      if (product.isCustom) return [...prev, { ...product, quantity: 1 }];
-      const existing = prev.find((i) => i.id === product.id);
-      if (existing) return prev.map((i) => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { id: product.id, name: product.name, price: product.price, image: product.image, description: product.description, quantity: 1 }];
+      if (item.isCustom) return [...prev, item];
+      const existing = prev.find((i) => i.id === item.id);
+      if (existing) return prev.map((i) => i.id === item.id ? { ...i, quantity: Math.min(i.quantity + 1, 99) } : i);
+      return [...prev, item];
     });
   };
 
   const handleRemoveFromCart = (id: string) => setCart((prev) => prev.filter((i) => i.id !== id));
   const handleUpdateQuantity = (id: string, qty: number) => {
     if (qty <= 0) { handleRemoveFromCart(id); return; }
-    setCart((prev) => prev.map((i) => i.id === id ? { ...i, quantity: qty } : i));
+    setCart((prev) => prev.map((i) => i.id === id ? { ...i, quantity: Math.min(qty, 99) } : i));
   };
 
   const handleCheckout = () => {
     setIsCartOpen(false);
+    if (!currentUser) {
+      // Đặt hàng bắt buộc đăng nhập — đơn hàng gắn với tài khoản lấy từ JWT phía server
+      setPendingCheckout(true);
+      setIsAuthOpen(true);
+      toast({ kind: 'info', message: 'Vui lòng đăng nhập hoặc tạo tài khoản để đặt hàng.' });
+      return;
+    }
     setIsCheckoutOpen(true);
+  };
+
+  const handleAuthSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (pendingCheckout) {
+      setPendingCheckout(false);
+      setIsCheckoutOpen(true);
+    }
   };
 
   const handleOrderSuccess = (order: OrderResponseData) => {
@@ -136,11 +169,14 @@ export default function App() {
 
   const cartTotal = cart.reduce((acc, i) => acc + i.price * i.quantity, 0);
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
+  const demoOnlyItems = unorderableItems(cart);
 
   if (showSplash) return <SplashScreen onEnter={handleEnterSite} />;
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#070a0f', color: '#f8fafc' }}>
+      <ToastStack />
+
       {/* Navbar Header */}
       <Navbar
         cartCount={cartCount}
@@ -161,6 +197,7 @@ export default function App() {
             onAddToCart={handleAddToCart}
             onBackToStore={() => handleNavigate('home')}
             initialDesign={sharedDesign}
+            onRequireLogin={() => setIsAuthOpen(true)}
           />
         ) : (
           /* STORE MAIN PAGE */
@@ -309,7 +346,7 @@ export default function App() {
                             borderColor: 'rgba(6, 182, 212, 0.3)',
                             color: '#38bdf8',
                           }}
-                          onClick={() => alert(`Liên hệ tư vấn dịch vụ: ${svc.title}`)}
+                          onClick={() => toast({ kind: 'info', message: `Liên hệ hotline 0901 234 567 để được tư vấn: ${svc.title}` })}
                         >
                           Đặt Lịch Tư Vấn
                         </button>
@@ -505,6 +542,12 @@ export default function App() {
 
             {cart.length > 0 && (
               <div style={{ padding: '20px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                {demoOnlyItems.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '10px 12px', marginBottom: '14px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.35)', color: '#fcd34d', fontSize: '12px', lineHeight: 1.5 }}>
+                    <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <span>{demoOnlyItems.length} sản phẩm là dữ liệu trưng bày (chế độ Demo) nên chưa đặt được. Hãy xóa khỏi giỏ để thanh toán các sản phẩm còn lại.</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <span style={{ color: '#94a3b8', fontSize: '14px', fontWeight: 600 }}>Tổng thanh toán:</span>
                   <span style={{ fontSize: '22px', fontWeight: 800, color: '#38bdf8' }}>{cartTotal.toLocaleString()}đ</span>
@@ -525,8 +568,8 @@ export default function App() {
       {/* Authentication Modal */}
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onAuthSuccess={(user) => setCurrentUser(user)}
+        onClose={() => { setIsAuthOpen(false); setPendingCheckout(false); }}
+        onAuthSuccess={handleAuthSuccess}
       />
 
       {/* Real-Time Microservices Telemetry Modal */}

@@ -1,10 +1,10 @@
-import { Suspense, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   OrbitControls,
   ContactShadows,
   Environment,
-  SoftShadows,
+  Lightformer,
   Sparkles,
 } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
@@ -30,6 +30,10 @@ const CAMERA_POSITIONS: Record<CameraPreset, [number, number, number]> = {
 
 export interface SceneItem {
   id: string;
+  /** Id gốc trong catalog Studio (vd 'f-neon') — dùng để tra giá/SKU và khôi phục bản vẽ. */
+  catalogId?: string;
+  /** SKU thật trong DB để đặt hàng. */
+  sku?: string;
   name: string;
   type: 'fish' | 'decor';
   price: number;
@@ -70,12 +74,13 @@ export function ConfiguratorScene(props: ConfiguratorSceneProps) {
   return (
     <div className="configurator-stage">
       <Leva
+        hidden={!import.meta.env.DEV}
         collapsed
         oneLineLabels
         titleBar={{ title: 'Dev 3D', drag: true, filter: false }}
       />
       <Canvas
-        shadows
+        shadows="percentage"
         dpr={[1, 1.5]}
         camera={{ position: CAMERA_POSITIONS.iso, fov: 42 }}
         gl={{
@@ -136,7 +141,8 @@ function SceneContents({
 
   return (
     <>
-      <SoftShadows size={26} samples={12} focus={0.85} />
+      {/* Không dùng <SoftShadows> của drei: shader PCSS của nó không tương thích three r18x
+          (lỗi 'unpackRGBAToDepth' làm hỏng mọi vật liệu nhận bóng). Bóng mềm dưới bể do ContactShadows đảm nhận. */}
 
       <BackgroundDome theme={backgroundTheme} />
       <LightingRig preset={lightingPreset} intensity={lightingIntensity} />
@@ -157,7 +163,13 @@ function SceneContents({
         shadow-bias={-0.0004}
       />
 
-      <Environment preset="city" environmentIntensity={0.7} />
+      {/* Môi trường phản chiếu dựng tại chỗ bằng Lightformer — không tải HDR từ CDN bên ngoài */}
+      <Environment resolution={256} environmentIntensity={0.7}>
+        <Lightformer intensity={2} position={[0, 5, -9]} scale={[10, 10, 1]} />
+        <Lightformer intensity={1.2} position={[-5, 1, -1]} rotation-y={Math.PI / 2} scale={[20, 2, 1]} />
+        <Lightformer intensity={1.2} position={[5, 1, 1]} rotation-y={-Math.PI / 2} scale={[20, 2, 1]} />
+        <Lightformer form="ring" color="#bdfff2" intensity={3} position={[0, 4, 3]} scale={2} />
+      </Environment>
 
       <AquariumTank
         shape={shape}
@@ -211,6 +223,7 @@ function SceneContents({
 
       <CameraRig preset={cameraPreset} />
       <OrbitControls
+        makeDefault
         enablePan={false}
         minDistance={2.5}
         maxDistance={7}
@@ -275,15 +288,41 @@ function buildSlots(n: number, shape: TankShape) {
   return slots;
 }
 
+/**
+ * Bay camera tới góc đặt sẵn KHI người dùng chọn preset, sau đó trả quyền điều khiển cho OrbitControls.
+ * (Bản cũ kéo camera về preset ở MỌI frame nên người dùng không thể xoay/zoom tự do.)
+ */
 function CameraRig({ preset }: { preset: CameraPreset }) {
-  const { camera } = useThree();
-  const targetRef = useRef<THREE.Vector3>(new THREE.Vector3(...CAMERA_POSITIONS[preset]));
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as (THREE.EventDispatcher & { update: () => void }) | null;
+  const target = useMemo(() => new THREE.Vector3(...CAMERA_POSITIONS[preset]), [preset]);
+  const animating = useRef(true);
+
+  useEffect(() => {
+    animating.current = true;
+  }, [preset]);
+
+  // Người dùng bắt đầu kéo/zoom thì dừng hoạt ảnh ngay
+  useEffect(() => {
+    if (!controls) return;
+    const stop = () => {
+      animating.current = false;
+    };
+    controls.addEventListener('start' as never, stop);
+    return () => controls.removeEventListener('start' as never, stop);
+  }, [controls]);
 
   useFrame(() => {
-    targetRef.current.set(...CAMERA_POSITIONS[preset]);
-    camera.position.lerp(targetRef.current, 0.08);
-    camera.lookAt(0, 0, 0);
-    camera.updateProjectionMatrix();
+    if (!animating.current) return;
+    camera.position.lerp(target, 0.08);
+    if (controls) {
+      controls.update();
+    } else {
+      camera.lookAt(0, 0, 0);
+    }
+    if (camera.position.distanceTo(target) < 0.01) {
+      animating.current = false;
+    }
   });
 
   return null;

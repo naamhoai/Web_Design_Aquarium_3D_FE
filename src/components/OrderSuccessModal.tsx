@@ -5,6 +5,18 @@ import {
 } from 'lucide-react';
 import type { OrderResponseData } from '../services/api';
 
+/**
+ * Thông tin nhận chuyển khoản lấy từ biến môi trường (.env) — KHÔNG hard-code số tài khoản.
+ * Chưa cấu hình => không hiển thị mã QR (tránh khách chuyển tiền nhầm vào tài khoản mẫu).
+ */
+const BANK = {
+  bankId: import.meta.env.VITE_VIETQR_BANK_ID as string | undefined,
+  accountNo: import.meta.env.VITE_VIETQR_ACCOUNT_NO as string | undefined,
+  accountName: import.meta.env.VITE_VIETQR_ACCOUNT_NAME as string | undefined,
+};
+const BANK_CONFIGURED = Boolean(BANK.bankId && BANK.accountNo && BANK.accountName
+  && /^[A-Za-z0-9]{2,20}$/.test(BANK.bankId) && /^[0-9]{6,20}$/.test(BANK.accountNo));
+
 interface OrderSuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -23,13 +35,19 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   if (!isOpen || !order) return null;
 
   const handleCopy = (text: string, fieldName: string) => {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard?.writeText(text).catch(() => {});
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const isVietQr = order.paymentMethod === 'VIETQR';
-  const qrUrl = `https://img.vietqr.io/image/MB-0901234567-compact2.png?amount=${order.finalAmount}&addInfo=${order.orderNumber}&accountName=AQUARIUM%20DESIGN%20VIETNAM`;
+  const isBankTransfer = order.paymentMethod === 'BANK_TRANSFER';
+  const isVietQr = isBankTransfer && BANK_CONFIGURED;
+  const qrUrl = isVietQr
+    ? `https://img.vietqr.io/image/${encodeURIComponent(BANK.bankId!)}-${encodeURIComponent(BANK.accountNo!)}-compact2.png`
+      + `?amount=${encodeURIComponent(String(Math.round(Number(order.finalAmount))))}`
+      + `&addInfo=${encodeURIComponent(order.orderNumber)}`
+      + `&accountName=${encodeURIComponent(BANK.accountName!)}`
+    : '';
 
   return (
     <div
@@ -229,15 +247,15 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                     <span style={{ color: '#94a3b8' }}>Ngân hàng thụ hưởng:</span>
-                    <span style={{ fontWeight: 700, color: '#f8fafc' }}>MB Bank (Quân Đội)</span>
+                    <span style={{ fontWeight: 700, color: '#f8fafc' }}>{BANK.bankId}</span>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
                     <span style={{ color: '#94a3b8' }}>Số tài khoản:</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontWeight: 700, color: '#38bdf8', letterSpacing: '0.5px' }}>0901234567</span>
+                      <span style={{ fontWeight: 700, color: '#38bdf8', letterSpacing: '0.5px' }}>{BANK.accountNo}</span>
                       <button
-                        onClick={() => handleCopy('0901234567', 'account')}
+                        onClick={() => handleCopy(BANK.accountNo!, 'account')}
                         style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
                         title="Sao chép số tài khoản"
                       >
@@ -248,14 +266,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                     <span style={{ color: '#94a3b8' }}>Chủ tài khoản:</span>
-                    <span style={{ fontWeight: 700, color: '#f8fafc' }}>AQUARIUM DESIGN VIETNAM</span>
+                    <span style={{ fontWeight: 700, color: '#f8fafc' }}>{BANK.accountName}</span>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
                     <span style={{ color: '#94a3b8' }}>Số tiền chuyển khoản:</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontWeight: 800, color: '#34d399', fontSize: '15px' }}>
-                        {order.finalAmount.toLocaleString('vi-VN')}₫
+                        {Number(order.finalAmount).toLocaleString('vi-VN')}₫
                       </span>
                       <button
                         onClick={() => handleCopy(order.finalAmount.toString(), 'amount')}
@@ -299,10 +317,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               <Truck size={24} color="#34d399" />
               <div>
                 <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '14px' }}>
-                  Hình Thức Thanh Toán: Tiền Mặt Khi Nhận Hàng (COD)
+                  {isBankTransfer
+                    ? 'Hình Thức Thanh Toán: Chuyển Khoản Ngân Hàng'
+                    : 'Hình Thức Thanh Toán: Tiền Mặt Khi Nhận Hàng (COD)'}
                 </div>
                 <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>
-                  Bộ phận CSKH sẽ liên hệ xác nhận thông tin và điều phối kỹ thuật viên giao bể trong 24 giờ.
+                  {isBankTransfer
+                    ? `CSKH sẽ gửi thông tin tài khoản nhận tiền. Nội dung chuyển khoản: ${order.orderNumber}. Tổng tiền: ${Number(order.finalAmount).toLocaleString('vi-VN')}₫.`
+                    : 'Bộ phận CSKH sẽ liên hệ xác nhận thông tin và điều phối kỹ thuật viên giao bể trong 24 giờ.'}
                 </div>
               </div>
             </div>
@@ -342,10 +364,10 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc' }}>
-                          Xưởng Cung Ứng #{idx + 1}
+                          {so.storeName || `Nhà cung cấp #${idx + 1}`}
                         </span>
                         <span style={{ fontSize: '10px', color: '#94a3b8' }}>
-                          (Supplier ID: {so.supplierId.slice(0, 8)}...)
+                          Tạm tính {Number(so.subtotal).toLocaleString('vi-VN')}₫
                         </span>
                       </div>
                       <span
@@ -379,7 +401,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                               {item.productName} ({item.variantName}) x{item.quantity}
                             </span>
                             <span style={{ fontWeight: 600, color: '#f8fafc' }}>
-                              {item.subtotal.toLocaleString('vi-VN')}₫
+                              {Number(item.subtotal).toLocaleString('vi-VN')}₫
                             </span>
                           </div>
                         ))}
@@ -424,7 +446,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               }}
             >
               <Activity size={16} />
-              <span>Kiểm Tra Telemetry 6 Services</span>
+              <span>Trạng Thái Hệ Thống</span>
             </button>
           )}
 
